@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Grid Lights – static flicker</title>
+  <title>Grid – Flicker Colors</title>
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; background: #0E1011; }
     canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
@@ -13,43 +13,42 @@
   <canvas id="bg"></canvas>
 
   <script>
-    /* ===== Config theo yêu cầu ===== */
-    const CELL = 28;                 // khoảng cách tâm ô (tăng +4px)
-    const DOT  = 24;                 // kích thước ô vuông (gấp đôi)
-    const DOT_R = 2;                 // bo góc
-    const EDGE_MARGIN = 5;           // chừa mép 5px
+    /* ========= CONFIG ========= */
+    const DOT = 24;                 // kích thước ô vuông (px)
+    const CELL = DOT * 1.5;         // khoảng cách giữa các tâm = 50% kích thước ô
+    const DOT_R = 2;                // bo góc
+    const EDGE_MARGIN = 5;          // chừa mép 5px
 
-    // Ô vuông ghi: màu C4C4C4, opacity 5%, KHÔNG nhấp nháy
+    // Lưới ô ghi – KHÔNG nhấp nháy
     const GRID_COLOR = "#C4C4C4";
-    const GRID_ALPHA = 0.05;         // 5%
+    const GRID_ALPHA = 0.05;        // = 5%
 
-    // Ô màu: không di chuyển, chỉ nhấp nháy tại chỗ
-    const COLORED_COUNT = 9;         // số ô màu (tùy chỉnh)
-    const COLORS = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
-    const FLICKER_MIN = 0.40;        // biên độ nhấp nháy (alpha)
-    const FLICKER_MAX = 1.00;
-    const FLICKER_SPEED = 0.18;      // tốc độ chuyển alpha
+    // Ô màu nhấp nháy tại chỗ
+    const COLORED_COUNT = 10;       // số ô màu (bạn chỉnh tùy ý)
+    const PALETTE = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
 
-    /* ===== Canvas + tính toán lưới ===== */
+    // Chu kỳ chuyển màu: ghi -> màu -> ghi
+    const T_FADE = 1.0;             // thời gian fade (giây)
+    const T_HOLD = 0.3;             // giữ sau mỗi lần chuyển
+    const CYCLE = 2 * (T_FADE + T_HOLD);
+
+    /* ========= Canvas & Grid ========= */
     const cvs = document.getElementById('bg');
     const ctx = cvs.getContext('2d', { alpha: false });
     let DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-    let W=0, H=0, cols=0, rows=0, ox=0, oy=0;
+    let cols=0, rows=0, ox=0, oy=0;
 
     function resize(){
-      W = Math.floor(innerWidth * DPR);
-      H = Math.floor(innerHeight * DPR);
-      cvs.width = W; cvs.height = H;
+      cvs.width  = Math.floor(innerWidth  * DPR);
+      cvs.height = Math.floor(innerHeight * DPR);
       ctx.setTransform(DPR,0,0,DPR,0,0);
 
       cols = Math.floor((innerWidth  - EDGE_MARGIN*2) / CELL);
       rows = Math.floor((innerHeight - EDGE_MARGIN*2) / CELL);
 
-      // căn giữa + chừa mép 5px
-      ox = Math.round((innerWidth  - cols*CELL)/2);
-      oy = Math.round((innerHeight - rows*CELL)/2);
-      ox = Math.max(EDGE_MARGIN, ox);
-      oy = Math.max(EDGE_MARGIN, oy);
+      // căn giữa & chừa mép
+      ox = Math.max(EDGE_MARGIN, Math.round((innerWidth  - cols*CELL)/2));
+      oy = Math.max(EDGE_MARGIN, Math.round((innerHeight - rows*CELL)/2));
     }
     addEventListener('resize', resize, { passive:true }); resize();
 
@@ -64,77 +63,20 @@
       ctx.closePath();
     }
 
-    /* ===== Tạo danh sách ô màu tĩnh ===== */
-    function pickColoredCells(){
-      const picked = new Set();
-      const list = [];
-      const total = cols * rows;
-      const want = Math.min(COLORED_COUNT, total);
-
-      function key(i,j){ return i + "," + j; }
-
-      while (list.length < want) {
-        const i = (Math.random() * cols) | 0;
-        const j = (Math.random() * rows) | 0;
+    /* ========= Pick static colored cells ========= */
+    function pickCells(){
+      const picked = new Set(), list = [];
+      const want = Math.min(COLORED_COUNT, cols*rows);
+      const key = (i,j)=> i + "," + j;
+      while (list.length < want){
+        const i = (Math.random()*cols)|0;
+        const j = (Math.random()*rows)|0;
         const k = key(i,j);
-        if (!picked.has(k)) {
+        if (!picked.has(k)){
           picked.add(k);
           list.push({
             i, j,
-            color: COLORS[(Math.random()*COLORS.length)|0],
-            a: Math.random()*(FLICKER_MAX-FLICKER_MIN)+FLICKER_MIN,
-            targetA: Math.random()*(FLICKER_MAX-FLICKER_MIN)+FLICKER_MIN
-          });
-        }
-      }
-      return list;
-    }
-    let colored = pickColoredCells();
-
-    /* ===== Vòng lặp vẽ ===== */
-    let last = performance.now();
-    function frame(now){
-      const dt = Math.min(50, now - last) / 1000;
-      last = now;
-
-      // nền
-      ctx.fillStyle = "#0E1011";
-      ctx.fillRect(0,0,innerWidth,innerHeight);
-
-      // vẽ ô vuông ghi (to, không nhấp nháy)
-      ctx.globalAlpha = GRID_ALPHA;
-      ctx.fillStyle = GRID_COLOR;
-      for (let j=0;j<rows;j++){
-        for (let i=0;i<cols;i++){
-          const x = ox + i*CELL - DOT/2;
-          const y = oy + j*CELL - DOT/2;
-          rrect(x,y,DOT,DOT,DOT_R);
-          ctx.fill();
-        }
-      }
-      ctx.globalAlpha = 1;
-
-      // vẽ ô màu (đúng kích thước & vị trí grid, KHÔNG di chuyển, chỉ nhấp nháy)
-      for (const c of colored){
-        // cập nhật alpha mượt
-        if (Math.random() < 0.02) {
-          c.targetA = Math.random()*(FLICKER_MAX-FLICKER_MIN)+FLICKER_MIN;
-        }
-        c.a += (c.targetA - c.a) * FLICKER_SPEED;
-
-        const x = ox + c.i*CELL - DOT/2;
-        const y = oy + c.j*CELL - DOT/2;
-
-        ctx.globalAlpha = c.a;
-        ctx.fillStyle = c.color;
-        rrect(x,y,DOT,DOT,DOT_R);
-        ctx.fill();          // KHÔNG stroke, KHÔNG glow
-      }
-      ctx.globalAlpha = 1;
-
-      requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-  </script>
-</body>
-</html>
+            color: PALETTE[(Math.random()*PALETTE.length)|0],
+            // lệch pha ban đầu để không đồng bộ
+            offset: Math.random() * CYCLE,
+            lastSeg: -1
