@@ -24,12 +24,12 @@
     const GRID_ALPHA = 0.05;        // = 5%
 
     // Ô màu nhấp nháy tại chỗ
-    const COLORED_COUNT = 10;       // số ô màu (bạn chỉnh tùy ý)
+    const COLORED_COUNT = 15;       // TĂNG 150% so với 10 (trước đây) => 15
     const PALETTE = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
 
     // Chu kỳ chuyển màu: ghi -> màu -> ghi
     const T_FADE = 1.0;             // thời gian fade (giây)
-    const T_HOLD = 0.3;             // giữ sau mỗi lần chuyển
+    const T_HOLD = 1.5;             // GIỮ 1.5s (trước là 0.3s)
     const CYCLE = 2 * (T_FADE + T_HOLD);
 
     /* ========= Canvas & Grid ========= */
