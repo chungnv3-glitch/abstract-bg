@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Falling Light Lines – Wide</title>
+  <title>Falling Light Lines – Spaced</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box !important; }
     html, body { height: 100%; }
     body {
       height: 100%;
-      background-color: #0E1011;   /* nền mới */
+      background-color: #0E1011;   /* nền */
       color: #000;
       line-height: 1.6;
       position: relative;
@@ -17,16 +17,14 @@
       overflow: hidden;
     }
 
-    /* khung phủ toàn màn hình */
     .lines {
       position: absolute;
       inset: 0;
-      width: 100vw;        /* phủ ngang toàn màn hình */
+      width: 100vw;
       height: 100%;
       margin: 0 auto;
     }
 
-    /* mỗi line là 1 vạch 1px chạy dọc */
     .line {
       position: absolute;
       top: 0;
@@ -34,14 +32,13 @@
       width: 1px;
       background: rgba(255,255,255,0.1);
       overflow: hidden;
-      /* vị trí ngang sẽ được set bằng style="left: XX%" khi tạo bằng JS */
     }
     .line::after {
       content: "";
       position: absolute;
       left: 0;
       width: 100%;
-      height: 15vh;                /* độ dài vệt sáng */
+      height: 15vh;
       top: -50%;
       background: linear-gradient(to bottom,
         rgba(255,255,255,0) 0%,
@@ -49,7 +46,6 @@
         #ffffff 100%);
       animation: drop 7s linear infinite;
       animation-timing-function: cubic-bezier(0.4, 0.26, 0, 0.97);
-      /* delay sẽ được gán ngẫu nhiên bằng JS để tự nhiên hơn */
     }
 
     @keyframes drop {
@@ -66,34 +62,29 @@
   <div class="lines" id="lines"></div>
 
   <script>
-    // ====== Tùy chỉnh nhanh ======
-    const LINE_COUNT = 24;      // số lượng line muốn hiển thị
-    const EDGE_PADDING = 2;     // chừa mép hai bên (đơn vị %), để 0 nếu muốn sát mép
-    const MIN_DELAY = 0;        // trễ tối thiểu (giây)
-    const MAX_DELAY = 3.5;      // trễ tối đa (giây)
-    const SPEED = 7;            // thời lượng rơi (giây) - nhỏ hơn -> nhanh hơn
+    // ====== Tùy chỉnh ======
+    const LINE_COUNT = 12;       // giảm 1 nửa số line so với trước
+    const EDGE_PADDING = 2;
+    const MIN_DELAY = 0;
+    const MAX_DELAY = 3.5;
+    const SPEED = 7;
+
     const linesEl = document.getElementById('lines');
 
     function createLines() {
       linesEl.innerHTML = "";
       const usable = 100 - EDGE_PADDING * 2;
-      // chia đều vị trí theo phần trăm chiều ngang
+
       for (let i = 0; i < LINE_COUNT; i++) {
-        const pct = EDGE_PADDING + (usable * i) / (LINE_COUNT - 1);
+        // để giãn khoảng cách: nhân hệ số 2
+        const pct = EDGE_PADDING + (usable * i * 2) / (LINE_COUNT * 2 - 1);
         const div = document.createElement('div');
         div.className = 'line';
         div.style.left = pct + '%';
 
-        // random hoá một chút để tự nhiên hơn
         const delay = (MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY)).toFixed(2);
-        const seg = div.appendChild(document.createElement('span')); // dùng ::after qua CSS, nhưng ở đây điều chỉnh bằng style
-        div.style.setProperty('--delay', delay);
-
-        // set delay & duration cho pseudo-element thông qua CSSOM
-        // mẹo: áp dụng vào style của chính .line và dùng attribute selector bên dưới
         div.style.setProperty('--dur', SPEED + 's');
 
-        // dùng inline CSS để điều khiển pseudo-element bằng stylesheet global
         const s = document.createElement('style');
         s.textContent = `
           .line[data-i="${i}"]::after { animation-delay: ${delay}s; animation-duration: var(--dur); }
@@ -105,12 +96,8 @@
       }
     }
 
-    // tốc độ rơi từ biến SPEED
     document.documentElement.style.setProperty('--dur', SPEED + 's');
     createLines();
-
-    // tạo lại nếu đổi kích thước lớn (không bắt buộc, nhưng phòng trường hợp bạn muốn đổi LINE_COUNT theo breakpoint)
-    window.addEventListener('resize', () => {}, { passive: true });
   </script>
 </body>
 </html>
