@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Animated Grid Particles (Canvas, high performance)</title>
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; background: #0E1011; }
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="bg"></canvas>
+
+  <script>
+    // ====== Config (tweak these) ======
+    const GRID_SIZE = 22;         // khoảng cách giữa các ô lưới (px)
+    const DOT_SIZE  = 8;          // cạnh mỗi ô vuông nhỏ (px)
+    const DOT_ROUND = 2;          // bo góc ô vuông
+    const GRID_ALPHA_BASE = 0.08; // độ mờ nền của lưới
+    const GRID_ALPHA_WAVE = 0.03; // biên độ gợn alpha (nhấp nháy nhẹ)
+
+    const PARTICLES = 9;          // số “ô sáng” di chuyển
+    const P_SIZE = 8;             // cạnh ô sáng (px)
+    const SPEED_MIN = 12;         // px/giây trên trục (tối thiểu)
+    const SPEED_MAX = 32;         // px/giây trên trục (tối đa)
+    const FLICKER = true;         // bật tắt nhấp nháy cho ô sáng
+    const TRAIL = 0.06;           // độ lưu ảnh (0..1) — giá trị cao = nhiều vệt mờ
+
+    const PALETTE = [
+      "#ffffff",
+      "#d6b4ff",
+      "#bcd4ff",
+      "#ffd1f0",
+      "#e8fff0"
+    ];
+
+    // ====== Canvas setup (with DPR) ======
+    const canvas = document.getElementById('bg');
+    const ctx = canvas.getContext('2d', { alpha: false }); // opaque for perf
+    let DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    let W = 0, H = 0, cols = 0, rows = 0;
+
+    function resize(){
+      W = Math.floor(innerWidth  * DPR);
+      H = Math.floor(innerHeight * DPR);
+      canvas.width = W;
+      canvas.height = H;
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      cols = Math.ceil(innerWidth / GRID_SIZE) + 2;
+      rows = Math.ceil(innerHeight / GRID_SIZE) + 2;
+    }
+    addEventListener('resize', resize, { passive: true });
+    resize();
+
+    // ====== Utilities ======
+    const rand = (a,b)=> a + Math.random()*(b-a);
+    const choice = arr => arr[(Math.random() * arr.length) | 0];
+    function roundRectPath(x, y, w, h, r=0){
+      const rr = Math.min(r, w*0.5, h*0.5);
+      ctx.beginPath();
+      ctx.moveTo(x+rr, y);
+      ctx.arcTo(x+w, y,   x+w, y+h, rr);
+      ctx.arcTo(x+w, y+h, x,   y+h, rr);
+      ctx.arcTo(x,   y+h, x,   y,   rr);
+      ctx.arcTo(x,   y,   x+w, y,   rr);
+      ctx.closePath();
+    }
+
+    // ====== Grid shimmer seed ======
+    // dùng hash ổn định để mỗi ô nhấp nháy khác nhau
+    const gridSeed = new Map();
+    function cellPhase(i,j){
+      const key = i+","+j;
+      if (!gridSeed.has(key)){
+        gridSeed.set(key, Math.random()*Math.PI*2);
+      }
+      return gridSeed.get(key);
+    }
+
+    // ====== Particles ======
+    function makeParticle(){
+      // bắt đầu tại vị trí lưới ngẫu nhiên
+      const gx = Math.floor(Math.random()*cols);
+      const gy = Math.floor(Math.random()*rows);
+      const dirX = Math.random()<0.5 ? -1 : 1;
+      const dirY = Math.random()<0.5 ? -1 : 1;
+      const speedX = rand(SPEED_MIN, SPEED_MAX) * (Math.random()<0.5?0:1); // đôi khi chỉ chạy dọc/ ngang
+      const speedY = rand(SPEED_MIN, SPEED_MAX);
+      return {
+        x: gx * GRID_SIZE,
+        y: gy * GRID_SIZE,
+        vx: dirX * speedX,
+        vy: dirY * speedY,
+        color: choice(PALETTE),
+        a: 0,            // alpha hiện tại
+        targetA: 1,      // alpha mục tiêu (để flicker mượt)
+        t: Math.random()*1000
+      };
+    }
+    const parts = Array.from({length: PARTICLES}, makeParticle);
+
+    // ====== Animation ======
+    let last = performance.now();
+    function frame(now){
+      const dt = Math.min(50, now - last) / 1000; // in seconds
+      last = now;
+
+      // tạo hiệu ứng afterimage/trail nhẹ bằng cách phủ 1 lớp trong suốt
+      if (TRAIL > 0){
+        ctx.fillStyle = `rgba(14,16,17, ${TRAIL})`; // nền #0E1011 với alpha
+        ctx.fillRect(0,0,innerWidth,innerHeight);
+      } else {
+        ctx.fillStyle = "#0E1011";
+        ctx.fillRect(0,0,innerWidth,innerHeight);
+      }
+
+      // vẽ lưới (những ô vuông nhỏ bo góc)
+      const offsetX = 0.5*GRID_SIZE, offsetY = 0.5*GRID_SIZE;
+      for (let j=0;j<rows;j++){
+        for (let i=0;i<cols;i++){
+          const x = i*GRID_SIZE - offsetX;
+          const y = j*GRID_SIZE - offsetY;
+          // nhấp nháy rất nhẹ theo phase riêng
+          const ph = cellPhase(i,j);
+          const a = GRID_ALPHA_BASE + GRID_ALPHA_WAVE * Math.sin(ph + now*0.0015);
+          ctx.globalAlpha = a;
+          ctx.fillStyle = "#222"; // màu của ô lưới
+          roundRectPath(x, y, DOT_SIZE, DOT_SIZE, DOT_ROUND);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+
+      // cập nhật & vẽ particles
+      for (const p of parts){
+        p.t += dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+
+        // giữ chuyển động theo lưới bằng cách hút về vị trí cell gần nhất một chút
+        p.x += (Math.round(p.x/GRID_SIZE)*GRID_SIZE - p.x) * 0.06;
+        p.y += (Math.round(p.y/GRID_SIZE)*GRID_SIZE - p.y) * 0.06;
+
+        // Bounce ở mép (cách 5px)
+        const minX = 5, minY = 5;
+        const maxX = innerWidth - 5;
+        const maxY = innerHeight - 5;
+        if (p.x < minX)  { p.x = minX;  p.vx = Math.abs(p.vx); }
+        if (p.x > maxX)  { p.x = maxX;  p.vx = -Math.abs(p.vx); }
+        if (p.y < minY)  { p.y = minY;  p.vy = Math.abs(p.vy); }
+        if (p.y > maxY)  { p.y = maxY;  p.vy = -Math.abs(p.vy); }
+
+        // flicker mượt
+        if (FLICKER){
+          // đổi mục tiêu alpha sau mỗi 0.6s
+          if ((p.t % 0.6) < dt) {
+            p.targetA = 0.6 + Math.random()*0.4;
+          }
+          p.a += (p.targetA - p.a) * 0.2;
+        } else {
+          p.a = 1;
+        }
+
+        // vẽ particle (ô vuông sáng)
+        const size = P_SIZE;
+        ctx.globalAlpha = p.a;
+        ctx.fillStyle = p.color;
+        roundRectPath(p.x - size/2, p.y - size/2, size, size, 1.5);
+        ctx.fill();
+        // glow nhẹ
+        ctx.globalAlpha = p.a*0.5;
+        ctx.fillStyle = p.color;
+        roundRectPath(p.x - size, p.y - size, size*2, size*2, size*0.6);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
