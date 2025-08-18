@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Falling Light Lines – Spaced</title>
+  <title>Falling Light Lines – Edge to Edge</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box !important; }
     html, body { height: 100%; }
@@ -63,8 +63,7 @@
 
   <script>
     // ====== Tùy chỉnh ======
-    const LINE_COUNT = 12;       // giảm 1 nửa số line so với trước
-    const EDGE_PADDING = 2;
+    const LINE_COUNT = 12;       // số line tổng (bao gồm cả 2 line sát lề)
     const MIN_DELAY = 0;
     const MAX_DELAY = 3.5;
     const SPEED = 7;
@@ -73,11 +72,17 @@
 
     function createLines() {
       linesEl.innerHTML = "";
-      const usable = 100 - EDGE_PADDING * 2;
 
-      for (let i = 0; i < LINE_COUNT; i++) {
-        // để giãn khoảng cách: nhân hệ số 2
-        const pct = EDGE_PADDING + (usable * i * 2) / (LINE_COUNT * 2 - 1);
+      // Đảm bảo có line ở 0% và 100%
+      const positions = [0];
+      const middleCount = LINE_COUNT - 2; // số line còn lại ở giữa
+      for (let i = 1; i <= middleCount; i++) {
+        const pct = (i / (middleCount + 1)) * 100;
+        positions.push(pct);
+      }
+      positions.push(100);
+
+      positions.forEach((pct, i) => {
         const div = document.createElement('div');
         div.className = 'line';
         div.style.left = pct + '%';
@@ -93,7 +98,7 @@
         div.dataset.i = i;
 
         linesEl.appendChild(div);
-      }
+      });
     }
 
     document.documentElement.style.setProperty('--dur', SPEED + 's');
