@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Grid – Flicker Colors</title>
+  <title>Grid – Rolling Flicker</title>
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; background: #0E1011; }
     canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
@@ -15,7 +15,7 @@
   <script>
     /* ========= CONFIG ========= */
     const DOT = 24;                 // kích thước ô vuông (px)
-    const CELL = DOT * 1.5;         // khoảng cách giữa các tâm = 50% kích thước ô
+    const CELL = DOT * 1.5;         // khoảng cách = 50% kích thước ô
     const DOT_R = 2;                // bo góc
     const EDGE_MARGIN = 5;          // chừa mép 5px
 
@@ -23,11 +23,11 @@
     const GRID_COLOR = "#C4C4C4";
     const GRID_ALPHA = 0.05;        // = 5%
 
-    // Ô màu nhấp nháy tại chỗ
-    const COLORED_COUNT = 10;       // số ô màu (bạn chỉnh tùy ý)
+    // Ô màu (mật độ cố định), mỗi ô chạy chu kỳ rồi nhường cho ô khác
+    const COLORED_COUNT = 10;       // GIỮ MẬT ĐỘ: luôn có đúng từng này ô đang hoạt động
     const PALETTE = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
 
-    // Chu kỳ chuyển màu: ghi -> màu -> ghi
+    // Chu kỳ: ghi -> (fade 1s) -> giữ 0.3s -> (fade 1s) -> giữ 0.3s
     const T_FADE = 1.0;             // thời gian fade (giây)
     const T_HOLD = 0.3;             // giữ sau mỗi lần chuyển
     const CYCLE = 2 * (T_FADE + T_HOLD);
@@ -49,6 +49,8 @@
       // căn giữa & chừa mép
       ox = Math.max(EDGE_MARGIN, Math.round((innerWidth  - cols*CELL)/2));
       oy = Math.max(EDGE_MARGIN, Math.round((innerHeight - rows*CELL)/2));
+
+      rebuildActive(); // khi thay đổi kích thước, chọn lại các ô hoạt động
     }
     addEventListener('resize', resize, { passive:true }); resize();
 
@@ -63,47 +65,61 @@
       ctx.closePath();
     }
 
-    /* ========= Pick static colored cells ========= */
-    function pickCells(){
-      const picked = new Set(), list = [];
-      const want = Math.min(COLORED_COUNT, cols*rows);
-      const key = (i,j)=> i + "," + j;
-      while (list.length < want){
+    /* ========= Rolling selection ========= */
+    // danh sách ô đang hoạt động (đúng COLORED_COUNT phần tử)
+    let active = [];
+    const used = new Set();              // set "i,j" các cell đang dùng để tránh trùng
+
+    function key(i,j){ return i + "," + j; }
+
+    function randomFreeCell(){
+      // chọn một ô chưa được dùng
+      for (let tries=0; tries<500; tries++){
         const i = (Math.random()*cols)|0;
         const j = (Math.random()*rows)|0;
         const k = key(i,j);
-        if (!picked.has(k)){
-          picked.add(k);
-          list.push({
-            i, j,
-            color: PALETTE[(Math.random()*PALETTE.length)|0],
-            // lệch pha ban đầu để không đồng bộ
-            offset: Math.random() * CYCLE,
-            lastSeg: -1
-          });
-        }
+        if (!used.has(k)) return {i,j,k};
       }
-      return list;
+      // fallback nếu lưới nhỏ: cho phép đè
+      const i = (Math.random()*cols)|0;
+      const j = (Math.random()*rows)|0;
+      return {i,j,k:key(i,j)};
     }
-    let colored = pickCells();
 
-    /* ========= Helpers ========= */
-    const ease = t => t<0 ? 0 : t>1 ? 1 : (t*t*(3-2*t)); // smoothstep
+    function spawnOne(){
+      const {i,j,k} = randomFreeCell();
+      used.add(k);
+      return {
+        i, j, k,
+        color: PALETTE[(Math.random()*PALETTE.length)|0],
+        t: Math.random()*CYCLE // lệch pha ban đầu để không đồng bộ
+      };
+    }
+
+    function rebuildActive(){
+      active = [];
+      used.clear();
+      const want = Math.min(COLORED_COUNT, cols*rows);
+      for (let n=0; n<want; n++) active.push(spawnOne());
+    }
+
+    // ease mượt cho alpha
+    const ease = t => t<0 ? 0 : t>1 ? 1 : (t*t*(3-2*t));
     function phaseAlpha(t){
-      // t: thời gian trong chu kỳ [0..CYCLE)
-      if (t < T_FADE) return ease(t / T_FADE);                            // fade in (ghi -> màu)
-      if (t < T_FADE + T_HOLD) return 1;                                  // hold màu
-      if (t < T_FADE + T_HOLD + T_FADE) return 1 - ease((t - T_FADE - T_HOLD) / T_FADE); // fade out (màu -> ghi)
-      return 0;                                                           // hold ghi
+      // t trong [0..CYCLE)
+      if (t < T_FADE) return ease(t / T_FADE);                            // ghi -> màu
+      if (t < T_FADE + T_HOLD) return 1;                                  // giữ màu
+      if (t < T_FADE + T_HOLD + T_FADE) return 1 - ease((t - T_FADE - T_HOLD) / T_FADE); // màu -> ghi
+      return 0;                                                           // giữ ghi
     }
     function segIndex(t){
-      if (t < T_FADE) return 0;                       // bắt đầu fade-in
-      if (t < T_FADE + T_HOLD) return 1;              // giữ màu
-      if (t < T_FADE + T_HOLD + T_FADE) return 2;     // fade-out
-      return 3;                                       // giữ ghi
+      if (t < T_FADE) return 0;
+      if (t < T_FADE + T_HOLD) return 1;
+      if (t < T_FADE + T_HOLD + T_FADE) return 2;
+      return 3;
     }
 
-    /* ========= Render Loop ========= */
+    /* ========= Render ========= */
     function drawGrid(){
       ctx.globalAlpha = GRID_ALPHA;
       ctx.fillStyle = GRID_COLOR;
@@ -120,38 +136,52 @@
 
     let last = performance.now();
     function frame(nowMs){
-      const now = nowMs/1000; // giây
-      // clear nền
+      const now = nowMs/1000;
+      const dt  = Math.min(50, nowMs - last) / 1000; last = nowMs;
+
+      // nền
       ctx.fillStyle = "#0E1011";
       ctx.fillRect(0,0,innerWidth,innerHeight);
 
       // lưới ghi
       drawGrid();
 
-      // các ô màu (đúng kích thước & vị trí, KHÔNG di chuyển, KHÔNG stroke)
-      for (const c of colored){
-        // thời gian cục bộ theo lệch pha
-        let t = (now + c.offset) % CYCLE;
+      // vẽ & cập nhật các ô đang hoạt động
+      for (let idx=0; idx<active.length; idx++){
+        const c = active[idx];
+        const t = (c.t += dt) % CYCLE;
 
-        // khi bắt đầu chu kỳ (vào segment 0) -> chọn màu mới
-        const seg = segIndex(t);
-        if ((c.lastSeg !== seg) && seg === 0){
+        // bắt đầu chu kỳ -> chọn màu mới (ghi -> màu)
+        if (segIndex(t) === 0 && segIndex((t-dt+CYCLE)%CYCLE) !== 0){
           c.color = PALETTE[(Math.random()*PALETTE.length)|0];
         }
-        c.lastSeg = seg;
 
-        const a = phaseAlpha(t);
+        // nếu vừa kết thúc cả chu kỳ (vào đoạn hold ghi) và đi qua ranh giới
+        if (segIndex(t) === 3 && segIndex((t-dt+CYCLE)%CYCLE) !== 3){
+          // giải phóng cell cũ
+          used.delete(c.k);
+          // chọn một cell ghi NGẪU NHIÊN mới để bắt đầu chu kỳ khác
+          const {i,j,k} = randomFreeCell();
+          used.add(k);
+          c.i = i; c.j = j; c.k = k;
+          // lệch pha để tạo lấp lánh
+          c.t = Math.random()*CYCLE*0.25; // start gần đầu chu kỳ nhưng không đồng bộ
+        }
+
+        const alpha = phaseAlpha(t);
         const x = ox + c.i*CELL - DOT/2;
         const y = oy + c.j*CELL - DOT/2;
-        ctx.globalAlpha = a;         // alpha màu theo chu kỳ
+
+        ctx.globalAlpha = alpha;
         ctx.fillStyle = c.color;
         rrect(x,y,DOT,DOT,DOT_R);
-        ctx.fill();
+        ctx.fill(); // không stroke, không glow
       }
       ctx.globalAlpha = 1;
 
       requestAnimationFrame(frame);
     }
+    rebuildActive();
     requestAnimationFrame(frame);
   </script>
 </body>
