@@ -80,3 +80,79 @@
             // lệch pha ban đầu để không đồng bộ
             offset: Math.random() * CYCLE,
             lastSeg: -1
+          });
+        }
+      }
+      return list;
+    }
+    let colored = pickCells();
+
+    /* ========= Helpers ========= */
+    const ease = t => t<0 ? 0 : t>1 ? 1 : (t*t*(3-2*t)); // smoothstep
+    function phaseAlpha(t){
+      // t: thời gian trong chu kỳ [0..CYCLE)
+      if (t < T_FADE) return ease(t / T_FADE);                            // fade in (ghi -> màu)
+      if (t < T_FADE + T_HOLD) return 1;                                  // hold màu
+      if (t < T_FADE + T_HOLD + T_FADE) return 1 - ease((t - T_FADE - T_HOLD) / T_FADE); // fade out (màu -> ghi)
+      return 0;                                                           // hold ghi
+    }
+    function segIndex(t){
+      if (t < T_FADE) return 0;                       // bắt đầu fade-in
+      if (t < T_FADE + T_HOLD) return 1;              // giữ màu
+      if (t < T_FADE + T_HOLD + T_FADE) return 2;     // fade-out
+      return 3;                                       // giữ ghi
+    }
+
+    /* ========= Render Loop ========= */
+    function drawGrid(){
+      ctx.globalAlpha = GRID_ALPHA;
+      ctx.fillStyle = GRID_COLOR;
+      for (let j=0;j<rows;j++){
+        for (let i=0;i<cols;i++){
+          const x = ox + i*CELL - DOT/2;
+          const y = oy + j*CELL - DOT/2;
+          rrect(x,y,DOT,DOT,DOT_R);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    let last = performance.now();
+    function frame(nowMs){
+      const now = nowMs/1000; // giây
+      // clear nền
+      ctx.fillStyle = "#0E1011";
+      ctx.fillRect(0,0,innerWidth,innerHeight);
+
+      // lưới ghi
+      drawGrid();
+
+      // các ô màu (đúng kích thước & vị trí, KHÔNG di chuyển, KHÔNG stroke)
+      for (const c of colored){
+        // thời gian cục bộ theo lệch pha
+        let t = (now + c.offset) % CYCLE;
+
+        // khi bắt đầu chu kỳ (vào segment 0) -> chọn màu mới
+        const seg = segIndex(t);
+        if ((c.lastSeg !== seg) && seg === 0){
+          c.color = PALETTE[(Math.random()*PALETTE.length)|0];
+        }
+        c.lastSeg = seg;
+
+        const a = phaseAlpha(t);
+        const x = ox + c.i*CELL - DOT/2;
+        const y = oy + c.j*CELL - DOT/2;
+        ctx.globalAlpha = a;         // alpha màu theo chu kỳ
+        ctx.fillStyle = c.color;
+        rrect(x,y,DOT,DOT,DOT_R);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
