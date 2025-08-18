@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Grid Lights (Canvas)</title>
+  <title>Grid Lights – static flicker</title>
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; background: #0E1011; }
     canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
@@ -13,25 +13,24 @@
   <canvas id="bg"></canvas>
 
   <script>
-    // ===== Config =====
-    const CELL = 24;            // khoảng cách giữa tâm các ô (px)
-    const DOT  = 12;            // kích thước ô vuông (px) -> grid & particle giống nhau
-    const DOT_R = 0;            // bo góc ô vuông
-    const GRID_COLOR = "#2a2a2a";
-    const GRID_ALPHA_BASE = 0.22;  // độ mờ nền của grid
-    const GRID_ALPHA_WAVE = 0.10;  // biên độ nhấp nháy (tăng để rõ hơn)
+    /* ===== Config theo yêu cầu ===== */
+    const CELL = 28;                 // khoảng cách tâm ô (tăng +4px)
+    const DOT  = 24;                 // kích thước ô vuông (gấp đôi)
+    const DOT_R = 2;                 // bo góc
+    const EDGE_MARGIN = 5;           // chừa mép 5px
 
-    const N_PART = 7;           // số ô màu chạy
-    const STEP_MIN = 0.7;       // thời gian 1 bước (s)
-    const STEP_MAX = 1.6;       // -> random để tự nhiên
-    const FLICKER_MIN = 0.55;   // alpha tối thiểu của ô màu
-    const FLICKER_MAX = 1.00;   // alpha tối đa
-    const GLOW = 0.55;          // 0..1 độ glow
-    const PALETTE = ["#FFFFFF", "#d6b4ff", "#bcd4ff", "#ffd1f0", "#e8fff0"];
+    // Ô vuông ghi: màu C4C4C4, opacity 5%, KHÔNG nhấp nháy
+    const GRID_COLOR = "#C4C4C4";
+    const GRID_ALPHA = 0.05;         // 5%
 
-    const EDGE_MARGIN = 5;      // chừa mép 5px hai bên
+    // Ô màu: không di chuyển, chỉ nhấp nháy tại chỗ
+    const COLORED_COUNT = 9;         // số ô màu (tùy chỉnh)
+    const COLORS = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
+    const FLICKER_MIN = 0.40;        // biên độ nhấp nháy (alpha)
+    const FLICKER_MAX = 1.00;
+    const FLICKER_SPEED = 0.18;      // tốc độ chuyển alpha
 
-    // ===== Canvas =====
+    /* ===== Canvas + tính toán lưới ===== */
     const cvs = document.getElementById('bg');
     const ctx = cvs.getContext('2d', { alpha: false });
     let DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -43,11 +42,10 @@
       cvs.width = W; cvs.height = H;
       ctx.setTransform(DPR,0,0,DPR,0,0);
 
-      // số cột/hàng vừa khít màn hình, có chừa EDGE_MARGIN
       cols = Math.floor((innerWidth  - EDGE_MARGIN*2) / CELL);
       rows = Math.floor((innerHeight - EDGE_MARGIN*2) / CELL);
 
-      // căn lưới vào giữa và chừa 5px mỗi mép
+      // căn giữa + chừa mép 5px
       ox = Math.round((innerWidth  - cols*CELL)/2);
       oy = Math.round((innerHeight - rows*CELL)/2);
       ox = Math.max(EDGE_MARGIN, ox);
@@ -55,11 +53,6 @@
     }
     addEventListener('resize', resize, { passive:true }); resize();
 
-    // utility
-    const rand  = (a,b)=> a + Math.random()*(b-a);
-    const choice= arr => arr[(Math.random()*arr.length)|0];
-
-    // path rounded rect
     function rrect(x,y,w,h,r){
       const rr = Math.min(r, w/2, h/2);
       ctx.beginPath();
@@ -71,104 +64,76 @@
       ctx.closePath();
     }
 
-    // per-cell phase for twinkle
-    const phases = new Map();
-    function cellPhase(i,j){
-      const k = i+','+j;
-      if (!phases.has(k)) phases.set(k, Math.random()*Math.PI*2);
-      return phases.get(k);
-    }
+    /* ===== Tạo danh sách ô màu tĩnh ===== */
+    function pickColoredCells(){
+      const picked = new Set();
+      const list = [];
+      const total = cols * rows;
+      const want = Math.min(COLORED_COUNT, total);
 
-    // ===== Particles: random walk on grid =====
-    function newWalker(){
-      const i = (Math.random() * cols) | 0;
-      const j = (Math.random() * rows) | 0;
-      return {
-        i, j, ni:i, nj:j,  // current cell & next cell
-        t: 0, dur: rand(STEP_MIN, STEP_MAX),
-        a: rand(FLICKER_MIN, FLICKER_MAX),
-        targetA: rand(FLICKER_MIN, FLICKER_MAX),
-        color: choice(PALETTE)
-      };
-    }
-    const walkers = Array.from({length:N_PART}, newWalker);
+      function key(i,j){ return i + "," + j; }
 
-    function pickNextDir(w){
-      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-      // tránh quay lại ngay bước trước
-      const [pi,pj] = [w.i, w.j];
-      let [di,dj] = choice(dirs);
-      // clip biên
-      const ni = Math.min(cols-1, Math.max(0, pi+di));
-      const nj = Math.min(rows-1, Math.max(0, pj+dj));
-      w.ni = ni; w.nj = nj;
-      w.t = 0; w.dur = rand(STEP_MIN, STEP_MAX);
-      // đôi khi đổi màu nhẹ
-      if (Math.random()<0.25) w.color = choice(PALETTE);
+      while (list.length < want) {
+        const i = (Math.random() * cols) | 0;
+        const j = (Math.random() * rows) | 0;
+        const k = key(i,j);
+        if (!picked.has(k)) {
+          picked.add(k);
+          list.push({
+            i, j,
+            color: COLORS[(Math.random()*COLORS.length)|0],
+            a: Math.random()*(FLICKER_MAX-FLICKER_MIN)+FLICKER_MIN,
+            targetA: Math.random()*(FLICKER_MAX-FLICKER_MIN)+FLICKER_MIN
+          });
+        }
+      }
+      return list;
     }
+    let colored = pickColoredCells();
 
-    // ===== Draw =====
+    /* ===== Vòng lặp vẽ ===== */
     let last = performance.now();
     function frame(now){
-      const dt = Math.min(50, now-last)/1000; last = now;
+      const dt = Math.min(50, now - last) / 1000;
+      last = now;
 
-      // nền đặc để clear vệt
+      // nền
       ctx.fillStyle = "#0E1011";
       ctx.fillRect(0,0,innerWidth,innerHeight);
 
-      // draw grid
+      // vẽ ô vuông ghi (to, không nhấp nháy)
+      ctx.globalAlpha = GRID_ALPHA;
+      ctx.fillStyle = GRID_COLOR;
       for (let j=0;j<rows;j++){
         for (let i=0;i<cols;i++){
           const x = ox + i*CELL - DOT/2;
           const y = oy + j*CELL - DOT/2;
-          const a = GRID_ALPHA_BASE + GRID_ALPHA_WAVE * Math.sin(now*0.002 + cellPhase(i,j));
-          ctx.globalAlpha = a;
-          ctx.fillStyle = GRID_COLOR;
           rrect(x,y,DOT,DOT,DOT_R);
           ctx.fill();
         }
       }
       ctx.globalAlpha = 1;
 
-      // update & draw walkers
-      for (const w of walkers){
-        w.t += dt;
-        // alpha flicker mượt
-        if (w.t % 0.4 < dt) w.targetA = rand(FLICKER_MIN, FLICKER_MAX);
-        w.a += (w.targetA - w.a) * 0.12;
-
-        if (w.t >= w.dur){
-          // kết thúc bước -> cập nhật cell
-          w.i = w.ni; w.j = w.nj;
-          pickNextDir(w);
+      // vẽ ô màu (đúng kích thước & vị trí grid, KHÔNG di chuyển, chỉ nhấp nháy)
+      for (const c of colored){
+        // cập nhật alpha mượt
+        if (Math.random() < 0.02) {
+          c.targetA = Math.random()*(FLICKER_MAX-FLICKER_MIN)+FLICKER_MIN;
         }
-        const k = Math.min(1, w.t / w.dur);
-        // interpolate từ cell hiện tại sang cell kế tiếp
-        const cx = (w.i + (w.ni - w.i)*k);
-        const cy = (w.j + (w.nj - w.j)*k);
-        const x = ox + cx*CELL - DOT/2;
-        const y = oy + cy*CELL - DOT/2;
+        c.a += (c.targetA - c.a) * FLICKER_SPEED;
 
-        // glow
-        if (GLOW>0){
-          ctx.globalAlpha = Math.max(0, w.a*0.6*GLOW);
-          ctx.fillStyle = w.color;
-          rrect(x-6, y-6, DOT+12, DOT+12, DOT_R+5);
-          ctx.fill();
-        }
+        const x = ox + c.i*CELL - DOT/2;
+        const y = oy + c.j*CELL - DOT/2;
 
-        // square
-        ctx.globalAlpha = w.a;
-        ctx.fillStyle = w.color;
-        rrect(x, y, DOT, DOT, DOT_R);
-        ctx.fill();
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = c.a;
+        ctx.fillStyle = c.color;
+        rrect(x,y,DOT,DOT,DOT_R);
+        ctx.fill();          // KHÔNG stroke, KHÔNG glow
       }
+      ctx.globalAlpha = 1;
 
       requestAnimationFrame(frame);
     }
-    // init next steps for walkers
-    walkers.forEach(pickNextDir);
     requestAnimationFrame(frame);
   </script>
 </body>
