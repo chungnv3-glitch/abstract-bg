@@ -1,9 +1,4 @@
-<!-- Curved Falling Lines – final, compact, copy-paste ready
-Invariants: 
-- Lines move TOP→BOTTOM continuously (no pause/jump/teleport)
-- 14 lines, evenly spaced; fan-out +30%; converge at center, 70px above bottom
-- Solid colors from palette; streak length 50–150px; duration 7s
-Tip: set DEV_CHECKS=true (below) while debug; false for production. -->
+<!-- Curved Falling Lines – TOP→BOTTOM, no jump/teleport, even spacing, fan-out +70% -->
 <!doctype html><html lang="vi"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Curved Falling Lines</title>
@@ -16,106 +11,88 @@ Tip: set DEV_CHECKS=true (below) while debug; false for production. -->
 </head><body>
 <svg id="stage" preserveAspectRatio="none"></svg>
 <script>
-/* ===================== CONFIG ===================== */
-const PALETTE = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
-const LINE_COUNT = 14;                 // 12 + 2 side lines
-const OPEN_FACTOR = 1.30;              // +30% wider fan-out
-const FOCUS_OFFSET = 70;               // converge point is bottom-70px
-const SEG_MIN = 50, SEG_MAX = 150;     // streak length (px)
-const DURATION = 7;                    // seconds per drop
-const RESIZE_EPS = 8;                  // px threshold to rebuild
-const DEV_CHECKS = false;              // turn true to log/guard during dev
-/* ================================================== */
+/* ============ CONFIG ============ */
+const COLORS      = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
+const LINE_COUNT  = 14;      // 12 + 2 bên, chia đều khoảng cách
+const OPEN_FACTOR = 1.70;    // +70% fan-out
+const FOCUS_OFF   = 70;      // điểm chụm cách đáy 70px
+const SEG_MIN     = 50, SEG_MAX = 150; // chiều dài vệt
+const DURATION    = 7;       // giây cho 1 lượt rơi
+/* ================================= */
 
 const svg = document.getElementById('stage');
 const pick = a => a[(Math.random()*a.length)|0];
 const lerp = (a,b,t)=> a + (b-a)*t;
 
-let runners = []; // { el, len, seg, start, end, t }
-let lastW = innerWidth, lastH = innerHeight;
+let runners = []; // {el,len,seg,start,end,t}
 
-/* ---- path: smooth curve converging to center (bottom-70) ---- */
-function makePathD(x0, w, h){
-  const cx = w*0.5, cy = h - FOCUS_OFFSET;
-  const c1x = x0,      c1y = h * 0.35;
-  const c2x = x0 + (cx - x0) * 0.90;          // pull toward center (curvier)
-  const c2y = h * (0.78 - 0.15*(OPEN_FACTOR-1));
+/* cong mượt, chụm về tâm (bottom-70), uốn mạnh để mở rộng */
+function makePathD(x0,w,h){
+  const cx=w*0.5, cy=h-FOCUS_OFF;
+  const c1x=x0,   c1y=h*0.35;
+  const c2x=x0 + (cx-x0)*0.90;
+  const c2y=h*(0.78 - 0.15*(OPEN_FACTOR-1)); // uốn thêm khi mở rộng
   return `M ${x0},0 C ${c1x},${c1y} ${c2x},${c2y} ${cx},${cy}`;
 }
 
-/* ---- safety harness (optional) ---- */
-function attachGuards(r){ if(!DEV_CHECKS) return; r._lastOff=null; r._pathD=r.el.getAttribute('d'); }
-function guardOffset(r, off){
-  if(!DEV_CHECKS) return off;
-  const d = r.el.getAttribute('d');
-  if (d !== r._pathD){ console.warn('[guard] path changed mid-loop'); r._pathD=d; }
-  if (r._lastOff!=null && off > r._lastOff + 0.5){
-    console.warn('[guard] offset increased; correcting direction');
-    off = r._lastOff - Math.abs(off - r._lastOff);
-  }
-  r._lastOff = off;
-  return off;
-}
+/* build 1 lần (hoặc chỉ khi container đổi size đáng kể) */
+function build(w,h){
+  svg.innerHTML=''; runners.length=0;
+  svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
 
-/* ---- build all paths + runners ---- */
-function build(){
-  svg.innerHTML = '';
-  runners.length = 0;
-
-  const w = svg.clientWidth, h = svg.clientHeight;
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-
-  // even spacing across widened fan-out
+  // EVEN spacing trên khoảng fan-out đã mở rộng (+70%)
   const left  = w*0.5 - (w*0.5*OPEN_FACTOR);
   const right = w*0.5 + (w*0.5*OPEN_FACTOR);
-  const xs = Array.from({length: LINE_COUNT}, (_,i)=> lerp(left, right, i/(LINE_COUNT-1)));
+  const xs = Array.from({length:LINE_COUNT},(_,i)=> lerp(left,right,i/(LINE_COUNT-1)));
 
   xs.forEach(x=>{
-    const d = makePathD(x, w, h);
+    const d=makePathD(x,w,h);
 
-    const track = document.createElementNS('http://www.w3.org/2000/svg','path');
-    track.setAttribute('class','track'); track.setAttribute('d', d); svg.appendChild(track);
+    const tr=document.createElementNS('http://www.w3.org/2000/svg','path');
+    tr.setAttribute('class','track'); tr.setAttribute('d',d); svg.appendChild(tr);
 
-    const run = document.createElementNS('http://www.w3.org/2000/svg','path');
-    run.setAttribute('class','runner'); run.setAttribute('d', d); run.setAttribute('stroke', pick(PALETTE));
-    svg.appendChild(run);
+    const r=document.createElementNS('http://www.w3.org/2000/svg','path');
+    r.setAttribute('class','runner'); r.setAttribute('d',d); r.setAttribute('stroke',pick(COLORS));
+    svg.appendChild(r);
 
-    const len = run.getTotalLength();
-    const seg = Math.round(lerp(SEG_MIN, SEG_MAX, Math.random()));
-    run.style.strokeDasharray = `${seg} ${len}`;
+    const len=r.getTotalLength();
+    const seg=Math.round(lerp(SEG_MIN,SEG_MAX,Math.random()));
+    r.style.strokeDasharray=`${seg} ${len}`;
 
-    // TOP → BOTTOM continuously: dashoffset decreases from (len+seg) → (-seg)
-    const r = { el: run, len, seg, start: len + seg, end: -seg, t: Math.random()*DURATION };
-    attachGuards(r);
-    runners.push(r);
+    // TOP → BOTTOM: dashoffset giảm từ (len+seg) xuống (-seg), loop liên tục
+    runners.push({ el:r, len, seg, start: len+seg, end: -seg, t: Math.random()*DURATION });
   });
 }
 
-/* ---- animation loop (pure rAF; no CSS loop glitches) ---- */
-let last = performance.now();
+/* rAF loop (không dùng CSS animation để tránh glitch/teleport) */
+let last=performance.now();
 function loop(now){
-  const dt = Math.min(50, now-last)/1000; last = now;
+  const dt=Math.min(50, now-last)/1000; last=now;
   for(const r of runners){
     r.t = (r.t + dt) % DURATION;
-    let off = lerp(r.start, r.end, r.t / DURATION);  // decreasing → top→bottom
-    off = guardOffset(r, off);
+    const off = lerp(r.start, r.end, r.t/DURATION); // luôn giảm → từ trên xuống
     r.el.style.strokeDashoffset = `${off}px`;
   }
   requestAnimationFrame(loop);
 }
 
-/* ---- init & resize handling ---- */
-function init(){ build(); requestAnimationFrame(loop); }
-init();
+/* init + quan sát kích thước thực của SVG (tránh rebuild thừa gây “nhảy”) */
+let boxW, boxH;
+function initOnce(){
+  boxW = svg.clientWidth; boxH = svg.clientHeight;
+  build(boxW, boxH);
+  requestAnimationFrame(loop);
 
-let rto;
-addEventListener('resize', ()=>{
-  clearTimeout(rto);
-  rto = setTimeout(()=>{
-    if (Math.abs(innerWidth-lastW)>RESIZE_EPS || Math.abs(innerHeight-lastH)>RESIZE_EPS){
-      lastW=innerWidth; lastH=innerHeight; build();
+  const ro = new ResizeObserver(entries=>{
+    const {width, height} = entries[0].contentRect;
+    // chỉ rebuild khi thay đổi đáng kể (Framer đôi khi layout lại nhẹ)
+    if (Math.abs(width-boxW) > 10 || Math.abs(height-boxH) > 10){
+      boxW = width; boxH = height;
+      build(boxW, boxH);
     }
-  }, 200);
-}, {passive:true});
+  });
+  ro.observe(svg);
+}
+initOnce();
 </script>
 </body></html>
