@@ -10,10 +10,8 @@
     body{height:100%;background:#0E1011;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
     svg{position:fixed;inset:0;width:100%;height:100%;display:block}
 
-    /* đường “track” nền mờ */
     .track{fill:none;stroke:rgba(255,255,255,0.08);stroke-width:1}
 
-    /* vệt rơi SOLID chạy theo path thẳng */
     .runner{
       fill:none;
       stroke:var(--color);
@@ -22,74 +20,79 @@
       animation:move var(--dur) linear infinite;
       animation-delay:var(--delay);
       animation-timing-function:cubic-bezier(0.4,0.26,0,0.97);
+      /* dasharray & start/end set bằng JS */
     }
     @keyframes move{
-      from{stroke-dashoffset:var(--start)}
-      to{stroke-dashoffset:var(--end)}
+      from{ stroke-dashoffset: var(--start) }  /* pathLen + seg */
+      to  { stroke-dashoffset: var(--end) }    /* -seg */
     }
     @media (prefers-reduced-motion:reduce){.runner{animation:none}}
   </style>
 </head>
 <body>
-  <svg id="stage" viewBox="0 0 1000 1000" preserveAspectRatio="none"></svg>
+  <svg id="stage" preserveAspectRatio="none"></svg>
 
   <script>
-    /* ===== GIỮ NGUYÊN THAM SỐ CŨ ===== */
-    const LINE_COUNT = 12;           // số line tổng
+    const LINE_COUNT = 12;
     const MIN_DELAY = 0;
     const MAX_DELAY = 3.5;
-    const SPEED_S   = 7;             // thời gian rơi 1 vòng
+    const SPEED_S   = 7;
 
-    const PALETTE = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"]; // màu SOLID
-    const MIN_LEN = 50, MAX_LEN = 150; // chiều dài vệt rơi
+    const PALETTE = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
+    const MIN_LEN = 50, MAX_LEN = 150;
 
     const svg = document.getElementById('stage');
     const pick = a => a[(Math.random()*a.length)|0];
     const rand = (a,b)=> a + Math.random()*(b-a);
 
-    // Path thẳng: từ (x,0) tới (cx,h) – hội tụ ở tâm đáy
-    function makeStraightPathD(x, w, h){
-      const cx = w*0.5, cy = h;
+    function makePathD(x, w, h){
+      const cx = w*0.5, cy = h;           // hội tụ đúng center đáy
       return `M ${x},0 L ${cx},${cy}`;
     }
 
     function build(){
       svg.innerHTML = '';
-      const w = svg.clientWidth, h = svg.clientHeight;
 
-      // chia đều vị trí theo tỉ lệ chiều rộng, bảo đảm có 0% và 100%
+      const w = svg.clientWidth;
+      const h = svg.clientHeight;
+
+      // Đồng bộ hệ toạ độ với kích thước thực -> không lệch center
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+      // vị trí x: có 0% và 100%, phần còn lại chia đều
       const xs = [0];
       const mid = LINE_COUNT - 2;
       for(let i=1;i<=mid;i++){ xs.push((i/(mid+1))*w); }
       xs.push(w);
 
-      xs.forEach((x,i)=>{
-        const d = makeStraightPathD(x, w, h);
+      xs.forEach(x=>{
+        const d = makePathD(x, w, h);
 
-        // track nền
-        const track = document.createElementNS('http://www.w3.org/2000/svg','path');
-        track.setAttribute('class','track');
-        track.setAttribute('d', d);
-        svg.appendChild(track);
+        // track mờ
+        const t = document.createElementNS('http://www.w3.org/2000/svg','path');
+        t.setAttribute('class','track');
+        t.setAttribute('d', d);
+        svg.appendChild(t);
 
-        // runner màu
-        const runner = document.createElementNS('http://www.w3.org/2000/svg','path');
-        runner.setAttribute('class','runner');
-        runner.setAttribute('d', d);
-        svg.appendChild(runner);
+        // runner
+        const r = document.createElementNS('http://www.w3.org/2000/svg','path');
+        r.setAttribute('class','runner');
+        r.setAttribute('d', d);
+        svg.appendChild(r);
 
-        const pathLen = runner.getTotalLength();
-        const segLen  = Math.round(rand(MIN_LEN, MAX_LEN)); // 50-150px
+        const pathLen = r.getTotalLength();
+        const segLen  = Math.round(rand(MIN_LEN, MAX_LEN));
 
-        // hiển thị 1 đoạn dài segLen trên path
-        runner.style.strokeDasharray = `${segLen} ${pathLen}`;
-        // chạy từ -segLen -> pathLen + segLen
-        runner.style.setProperty('--start', `-${segLen}px`);
-        runner.style.setProperty('--end', `${pathLen + segLen}px`);
+        // Hiển thị 1 đoạn dài segLen
+        r.style.strokeDasharray = `${segLen} ${pathLen}`;
 
-        runner.style.setProperty('--dur', `${SPEED_S}s`);
-        runner.style.setProperty('--delay', `${rand(MIN_DELAY, MAX_DELAY).toFixed(2)}s`);
-        runner.style.setProperty('--color', pick(PALETTE));
+        // 👉 Chạy TỪ TRÊN XUỐNG: dashoffset giảm từ (pathLen+seg) -> (-seg)
+        r.style.setProperty('--start', `${pathLen + segLen}px`);
+        r.style.setProperty('--end', `-${segLen}px`);
+
+        r.style.setProperty('--dur', `${SPEED_S}s`);
+        r.style.setProperty('--delay', `${rand(MIN_DELAY, MAX_DELAY).toFixed(2)}s`);
+        r.style.setProperty('--color', pick(PALETTE));
       });
     }
 
