@@ -3,101 +3,120 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Straight Falling Lines (Converge)</title>
+  <title>Curved Falling Lines (converge center)</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     html,body{height:100%}
     body{height:100%;background:#0E1011;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
     svg{position:fixed;inset:0;width:100%;height:100%;display:block}
 
-    .track{fill:none;stroke:rgba(255,255,255,0.08);stroke-width:1}
-
+    /* track mờ nền */
+    .track{
+      fill:none;
+      stroke:rgba(255,255,255,0.08);
+      stroke-width:1;
+    }
+    /* vệt rơi solid chạy theo đường cong */
     .runner{
       fill:none;
       stroke:var(--color);
       stroke-width:1;
       stroke-linecap:round;
-      animation:move var(--dur) linear infinite;
-      animation-delay:var(--delay);
-      animation-timing-function:cubic-bezier(0.4,0.26,0,0.97);
-      /* dasharray & start/end set bằng JS */
+
+      /* Hiển thị 1 đoạn dài segLen trên tổng pathLen (set bằng JS) */
+      /* Di chuyển bằng dashoffset: từ -segLen (trên đỉnh, ngoài khung) -> pathLen+segLen (qua hết đáy) */
+      animation: fall var(--dur) linear infinite;
+      animation-delay: var(--delay);  /* chỉ lệch pha lúc bắt đầu */
+      animation-timing-function: cubic-bezier(0.4,0.26,0,0.97);
     }
-    @keyframes move{
-      from{ stroke-dashoffset: var(--start) }  /* pathLen + seg */
-      to  { stroke-dashoffset: var(--end) }    /* -seg */
+    @keyframes fall {
+      from { stroke-dashoffset: var(--start); }   /* -segLen  (ngoài khung phía trên) */
+      to   { stroke-dashoffset: var(--end); }     /* pathLen + segLen (qua khỏi đáy) */
     }
-    @media (prefers-reduced-motion:reduce){.runner{animation:none}}
+    @media (prefers-reduced-motion:reduce){ .runner{ animation:none } }
   </style>
 </head>
 <body>
   <svg id="stage" preserveAspectRatio="none"></svg>
 
   <script>
-    const LINE_COUNT = 12;
+    /* ===== GIỮ THAM SỐ NHƯ BẢN CŨ ===== */
+    const LINE_COUNT = 12;            // số line tổng
     const MIN_DELAY = 0;
     const MAX_DELAY = 3.5;
-    const SPEED_S   = 7;
+    const SPEED_S   = 7;              // thời gian rơi 1 vòng (giây)
 
-    const PALETTE = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
-    const MIN_LEN = 50, MAX_LEN = 150;
+    const PALETTE = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"]; // màu solid
+    const MIN_LEN = 50, MAX_LEN = 150; // chiều dài vệt rơi
 
     const svg = document.getElementById('stage');
     const pick = a => a[(Math.random()*a.length)|0];
-    const rand = (a,b)=> a + Math.random()*(b-a);
+    const rand = (a,b) => a + Math.random()*(b-a);
 
-    function makePathD(x, w, h){
-      const cx = w*0.5, cy = h;           // hội tụ đúng center đáy
-      return `M ${x},0 L ${cx},${cy}`;
+    // Tạo đường cong chụm về chính giữa đáy
+    function makeCurvedPathD(xStart, w, h){
+      const x0 = xStart, y0 = 0;
+      const cx = w * 0.5, cy = h;        // hội tụ center đáy
+
+      // control points để uốn cong mềm & chụm về center
+      const c1x = x0;            const c1y = h * 0.35;   // kéo nhẹ theo cột ban đầu
+      const mix = (t,a,b)=> a + (b-a)*t;
+      const c2x = mix(0.8, x0, cx);      const c2y = h * 0.78;
+
+      return `M ${x0},${y0} C ${c1x},${c1y} ${c2x},${c2y} ${cx},${cy}`;
     }
 
     function build(){
-      svg.innerHTML = '';
+      svg.innerHTML = "";
 
       const w = svg.clientWidth;
       const h = svg.clientHeight;
+      // đồng bộ hệ toạ độ với kích thước thực -> center luôn chuẩn
+      svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
 
-      // Đồng bộ hệ toạ độ với kích thước thực -> không lệch center
-      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-
-      // vị trí x: có 0% và 100%, phần còn lại chia đều
+      // chia đều X: có 0% và 100% + các line ở giữa
       const xs = [0];
       const mid = LINE_COUNT - 2;
-      for(let i=1;i<=mid;i++){ xs.push((i/(mid+1))*w); }
+      for (let i=1;i<=mid;i++) xs.push((i/(mid+1))*w);
       xs.push(w);
 
-      xs.forEach(x=>{
-        const d = makePathD(x, w, h);
+      xs.forEach((x)=>{
+        const d = makeCurvedPathD(x, w, h);
 
-        // track mờ
-        const t = document.createElementNS('http://www.w3.org/2000/svg','path');
-        t.setAttribute('class','track');
-        t.setAttribute('d', d);
-        svg.appendChild(t);
+        // track nền mờ
+        const track = document.createElementNS("http://www.w3.org/2000/svg","path");
+        track.setAttribute("class","track");
+        track.setAttribute("d", d);
+        svg.appendChild(track);
 
-        // runner
-        const r = document.createElementNS('http://www.w3.org/2000/svg','path');
-        r.setAttribute('class','runner');
-        r.setAttribute('d', d);
-        svg.appendChild(r);
+        // vệt rơi màu
+        const runner = document.createElementNS("http://www.w3.org/2000/svg","path");
+        runner.setAttribute("class","runner");
+        runner.setAttribute("d", d);
+        svg.appendChild(runner);
 
-        const pathLen = r.getTotalLength();
-        const segLen  = Math.round(rand(MIN_LEN, MAX_LEN));
+        const pathLen = runner.getTotalLength();                 // chiều dài path
+        const segLen  = Math.round(rand(MIN_LEN, MAX_LEN));      // 50–150 px
 
-        // Hiển thị 1 đoạn dài segLen
-        r.style.strokeDasharray = `${segLen} ${pathLen}`;
+        // hiển thị 1 đoạn dài segLen trên path
+        runner.style.strokeDasharray = `${segLen} ${pathLen}`;
 
-        // 👉 Chạy TỪ TRÊN XUỐNG: dashoffset giảm từ (pathLen+seg) -> (-seg)
-        r.style.setProperty('--start', `${pathLen + segLen}px`);
-        r.style.setProperty('--end', `-${segLen}px`);
+        // CHUYỂN ĐỘNG TỪ TRÊN XUỐNG:
+        runner.style.setProperty("--start", `-${segLen}px`);            // bắt đầu ngoài khung phía trên
+        runner.style.setProperty("--end",   `${pathLen + segLen}px`);   // kết thúc qua khỏi đáy
 
-        r.style.setProperty('--dur', `${SPEED_S}s`);
-        r.style.setProperty('--delay', `${rand(MIN_DELAY, MAX_DELAY).toFixed(2)}s`);
-        r.style.setProperty('--color', pick(PALETTE));
+        // tốc độ & delay (delay chỉ áp dụng ban đầu để lệch pha)
+        runner.style.setProperty("--dur", `${SPEED_S}s`);
+        runner.style.setProperty("--delay", `${rand(MIN_DELAY, MAX_DELAY).toFixed(2)}s`);
+
+        // màu solid ngẫu nhiên
+        runner.style.setProperty("--color", pick(PALETTE));
       });
     }
 
     build();
-    window.addEventListener('resize', build, {passive:true});
+    // tái tạo khi đổi kích thước để path & center luôn đúng
+    window.addEventListener('resize', build, { passive:true });
   </script>
 </body>
 </html>
