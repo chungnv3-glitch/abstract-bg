@@ -9,7 +9,7 @@
     html, body { height: 100%; }
     body {
       height: 100%;
-      background-color: #0E1011;   /* nền */
+      background-color: #0E1011;
       color: #000;
       line-height: 1.6;
       position: relative;
@@ -25,32 +25,33 @@
       margin: 0 auto;
     }
 
+    /* hairline nền mờ */
     .line {
       position: absolute;
       top: 0;
       height: 100%;
       width: 1px;
-      background: rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.08);
       overflow: hidden;
     }
+
+    /* vệt rơi: SOLID (không gradient), màu & chiều dài set bằng CSS variables */
     .line::after {
       content: "";
       position: absolute;
       left: 0;
       width: 100%;
-      height: 15vh;
-      top: -50%;
-      background: linear-gradient(to bottom,
-        rgba(255,255,255,0) 0%,
-        #ffffff 75%,
-        #ffffff 100%);
-      animation: drop 7s linear infinite;
+      height: var(--segLen);           /* 50–150px */
+      top: calc(-1 * var(--segLen));   /* bắt đầu ngoài khung */
+      background: var(--segColor);     /* SOLID color */
+      animation: drop var(--dur) linear infinite;
+      animation-delay: var(--delay);
       animation-timing-function: cubic-bezier(0.4, 0.26, 0, 0.97);
     }
 
     @keyframes drop {
-      0%   { top: -50%; }
-      100% { top: 110%; }
+      0%   { top: calc(-1 * var(--segLen)); }
+      100% { top: calc(100% + var(--segLen)); }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -63,19 +64,26 @@
 
   <script>
     // ====== Tùy chỉnh ======
-    const LINE_COUNT = 12;       // số line tổng (bao gồm cả 2 line sát lề)
-    const MIN_DELAY = 0;
-    const MAX_DELAY = 3.5;
-    const SPEED = 7;
+    const LINE_COUNT = 12;      // số line tổng (có cả 2 line sát lề)
+    const MIN_DELAY  = 0;
+    const MAX_DELAY  = 3.5;
+    const SPEED_S    = 7;       // thời gian rơi (giây)
+
+    // màu vệt rơi (solid)
+    const PALETTE = ["#FFC413", "#00A652", "#FFBCFC", "#4A4A48", "#00A652", "#C4C8FF"];
+
+    // chiều dài vệt rơi (px)
+    const MIN_LEN = 50;
+    const MAX_LEN = 150;
 
     const linesEl = document.getElementById('lines');
 
     function createLines() {
       linesEl.innerHTML = "";
 
-      // Đảm bảo có line ở 0% và 100%
+      // Vị trí: bảo đảm có line ở 0% và 100%, phần còn lại chia đều
       const positions = [0];
-      const middleCount = LINE_COUNT - 2; // số line còn lại ở giữa
+      const middleCount = LINE_COUNT - 2;
       for (let i = 1; i <= middleCount; i++) {
         const pct = (i / (middleCount + 1)) * 100;
         positions.push(pct);
@@ -83,26 +91,29 @@
       positions.push(100);
 
       positions.forEach((pct, i) => {
-        const div = document.createElement('div');
-        div.className = 'line';
-        div.style.left = pct + '%';
+        const line = document.createElement('div');
+        line.className = 'line';
+        line.style.left = pct + '%';
 
-        const delay = (MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY)).toFixed(2);
-        div.style.setProperty('--dur', SPEED + 's');
+        // random delay, duration (cố định), color & length
+        const delay = (MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY)).toFixed(2) + 's';
+        const dur   = SPEED_S + 's';
+        const color = PALETTE[(Math.random() * PALETTE.length) | 0];
+        const len   = Math.round(MIN_LEN + Math.random() * (MAX_LEN - MIN_LEN)) + 'px';
 
-        const s = document.createElement('style');
-        s.textContent = `
-          .line[data-i="${i}"]::after { animation-delay: ${delay}s; animation-duration: var(--dur); }
-        `;
-        document.head.appendChild(s);
-        div.dataset.i = i;
+        // gán biến CSS cho ::after
+        line.style.setProperty('--delay',   delay);
+        line.style.setProperty('--dur',     dur);
+        line.style.setProperty('--segColor', color);
+        line.style.setProperty('--segLen',   len);
 
-        linesEl.appendChild(div);
+        linesEl.appendChild(line);
       });
     }
 
-    document.documentElement.style.setProperty('--dur', SPEED + 's');
     createLines();
+    // nếu muốn tái tạo khi resize cho phân bổ đẹp hơn:
+    // window.addEventListener('resize', createLines, { passive: true });
   </script>
 </body>
 </html>
