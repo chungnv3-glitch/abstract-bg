@@ -24,31 +24,30 @@
     const GRID_ALPHA = 0.05;        // = 5%
 
     // Ô màu nhấp nháy tại chỗ
-    const COLORED_COUNT = 15;       // TĂNG 150% so với 10 (trước đây) => 15
+    const COLORED_COUNT = 30;       // tăng lên 30 ô màu
     const PALETTE = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
 
     // Chu kỳ chuyển màu: ghi -> màu -> ghi
     const T_FADE = 1.0;             // thời gian fade (giây)
-    const T_HOLD = 1.5;             // GIỮ 1.5s (trước là 0.3s)
+    const T_HOLD = 3.5;             // GIỮ 3.5s (trước là 1.5s)
     const CYCLE = 2 * (T_FADE + T_HOLD);
 
     /* ========= Canvas & Grid ========= */
     const cvs = document.getElementById('bg');
     const ctx = cvs.getContext('2d', { alpha: false });
     let DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-    let cols=0, rows=0, ox=0, oy=0;
+    let cols=0, rows=0, ox=EDGE_MARGIN, oy=EDGE_MARGIN;
 
     function resize(){
       cvs.width  = Math.floor(innerWidth  * DPR);
       cvs.height = Math.floor(innerHeight * DPR);
       ctx.setTransform(DPR,0,0,DPR,0,0);
 
-      cols = Math.floor((innerWidth  - EDGE_MARGIN*2) / CELL);
-      rows = Math.floor((innerHeight - EDGE_MARGIN*2) / CELL);
+      cols = Math.max(1, Math.floor((innerWidth  - EDGE_MARGIN*2 - DOT) / CELL) + 1);
+      rows = Math.max(1, Math.floor((innerHeight - EDGE_MARGIN*2 - DOT) / CELL) + 1);
 
-      // căn giữa & chừa mép
-      ox = Math.max(EDGE_MARGIN, Math.round((innerWidth  - cols*CELL)/2));
-      oy = Math.max(EDGE_MARGIN, Math.round((innerHeight - rows*CELL)/2));
+      ox = EDGE_MARGIN;
+      oy = EDGE_MARGIN;
     }
     addEventListener('resize', resize, { passive:true }); resize();
 
@@ -77,7 +76,6 @@
           list.push({
             i, j,
             color: PALETTE[(Math.random()*PALETTE.length)|0],
-            // lệch pha ban đầu để không đồng bộ
             offset: Math.random() * CYCLE,
             lastSeg: -1
           });
@@ -88,19 +86,18 @@
     let colored = pickCells();
 
     /* ========= Helpers ========= */
-    const ease = t => t<0 ? 0 : t>1 ? 1 : (t*t*(3-2*t)); // smoothstep
+    const ease = t => t<0 ? 0 : t>1 ? 1 : (t*t*(3-2*t));
     function phaseAlpha(t){
-      // t: thời gian trong chu kỳ [0..CYCLE)
-      if (t < T_FADE) return ease(t / T_FADE);                            // fade in (ghi -> màu)
-      if (t < T_FADE + T_HOLD) return 1;                                  // hold màu
-      if (t < T_FADE + T_HOLD + T_FADE) return 1 - ease((t - T_FADE - T_HOLD) / T_FADE); // fade out (màu -> ghi)
-      return 0;                                                           // hold ghi
+      if (t < T_FADE) return ease(t / T_FADE);
+      if (t < T_FADE + T_HOLD) return 1;
+      if (t < T_FADE + T_HOLD + T_FADE) return 1 - ease((t - T_FADE - T_HOLD) / T_FADE);
+      return 0;
     }
     function segIndex(t){
-      if (t < T_FADE) return 0;                       // bắt đầu fade-in
-      if (t < T_FADE + T_HOLD) return 1;              // giữ màu
-      if (t < T_FADE + T_HOLD + T_FADE) return 2;     // fade-out
-      return 3;                                       // giữ ghi
+      if (t < T_FADE) return 0;
+      if (t < T_FADE + T_HOLD) return 1;
+      if (t < T_FADE + T_HOLD + T_FADE) return 2;
+      return 3;
     }
 
     /* ========= Render Loop ========= */
@@ -109,8 +106,8 @@
       ctx.fillStyle = GRID_COLOR;
       for (let j=0;j<rows;j++){
         for (let i=0;i<cols;i++){
-          const x = ox + i*CELL - DOT/2;
-          const y = oy + j*CELL - DOT/2;
+          const x = ox + i*CELL;
+          const y = oy + j*CELL;
           rrect(x,y,DOT,DOT,DOT_R);
           ctx.fill();
         }
@@ -118,22 +115,16 @@
       ctx.globalAlpha = 1;
     }
 
-    let last = performance.now();
     function frame(nowMs){
-      const now = nowMs/1000; // giây
-      // clear nền
+      const now = nowMs/1000;
+
       ctx.fillStyle = "#0E1011";
       ctx.fillRect(0,0,innerWidth,innerHeight);
 
-      // lưới ghi
       drawGrid();
 
-      // các ô màu (đúng kích thước & vị trí, KHÔNG di chuyển, KHÔNG stroke)
       for (const c of colored){
-        // thời gian cục bộ theo lệch pha
         let t = (now + c.offset) % CYCLE;
-
-        // khi bắt đầu chu kỳ (vào segment 0) -> chọn màu mới
         const seg = segIndex(t);
         if ((c.lastSeg !== seg) && seg === 0){
           c.color = PALETTE[(Math.random()*PALETTE.length)|0];
@@ -141,9 +132,9 @@
         c.lastSeg = seg;
 
         const a = phaseAlpha(t);
-        const x = ox + c.i*CELL - DOT/2;
-        const y = oy + c.j*CELL - DOT/2;
-        ctx.globalAlpha = a;         // alpha màu theo chu kỳ
+        const x = ox + c.i*CELL;
+        const y = oy + c.j*CELL;
+        ctx.globalAlpha = a;
         ctx.fillStyle = c.color;
         rrect(x,y,DOT,DOT,DOT_R);
         ctx.fill();
