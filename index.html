@@ -1,7 +1,6 @@
-<!-- Curved Falling Lines – TOP→BOTTOM, no jump/teleport, even spacing, fan-out +70% -->
 <!doctype html><html lang="vi"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Curved Falling Lines</title>
+<title>Curved Falling Lines – stable</title>
 <style>
   html,body{height:100%;margin:0;background:#0E1011;overflow:hidden}
   svg{position:fixed;inset:0;width:100%;height:100%;display:block}
@@ -11,88 +10,120 @@
 </head><body>
 <svg id="stage" preserveAspectRatio="none"></svg>
 <script>
-/* ============ CONFIG ============ */
-const COLORS      = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
-const LINE_COUNT  = 14;      // 12 + 2 bên, chia đều khoảng cách
-const OPEN_FACTOR = 1.70;    // +70% fan-out
-const FOCUS_OFF   = 70;      // điểm chụm cách đáy 70px
-const SEG_MIN     = 50, SEG_MAX = 150; // chiều dài vệt
-const DURATION    = 7;       // giây cho 1 lượt rơi
+/* ===== CONFIG (theo yêu cầu) ===== */
+const PALETTE     = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
+const LINE_COUNT  = 14;     // 12 + 2 line ngoài, spacing đều
+const OPEN_FACTOR = 1.70;   // fan-out +70%
+const FOCUS_OFF   = 70;     // điểm chụm cách đáy 70px
+const SEG_MIN     = 50, SEG_MAX = 150;  // chiều dài vệt (px)
+const DURATION    = 7;      // giây cho 1 lượt rơi
 /* ================================= */
 
 const svg = document.getElementById('stage');
-const pick = a => a[(Math.random()*a.length)|0];
-const lerp = (a,b,t)=> a + (b-a)*t;
+const lerp = (a,b,t)=>a+(b-a)*t;
+const pick = a=>a[(Math.random()*a.length)|0];
 
-let runners = []; // {el,len,seg,start,end,t}
+let runners = []; // giữ state để không nhảy khi rebuild
 
-/* cong mượt, chụm về tâm (bottom-70), uốn mạnh để mở rộng */
 function makePathD(x0,w,h){
-  const cx=w*0.5, cy=h-FOCUS_OFF;
-  const c1x=x0,   c1y=h*0.35;
-  const c2x=x0 + (cx-x0)*0.90;
-  const c2y=h*(0.78 - 0.15*(OPEN_FACTOR-1)); // uốn thêm khi mở rộng
+  const cx = w*0.5, cy = h - FOCUS_OFF;
+  const c1x=x0, c1y=h*0.35;
+  const c2x=x0 + (cx-x0)*0.90;                // uốn mạnh hơn cho fan-out rộng
+  const c2y=h*(0.78 - 0.15*(OPEN_FACTOR-1));
   return `M ${x0},0 C ${c1x},${c1y} ${c2x},${c2y} ${cx},${cy}`;
 }
 
-/* build 1 lần (hoặc chỉ khi container đổi size đáng kể) */
-function build(w,h){
-  svg.innerHTML=''; runners.length=0;
-  svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
-
-  // EVEN spacing trên khoảng fan-out đã mở rộng (+70%)
+function computePositions(w){
   const left  = w*0.5 - (w*0.5*OPEN_FACTOR);
   const right = w*0.5 + (w*0.5*OPEN_FACTOR);
-  const xs = Array.from({length:LINE_COUNT},(_,i)=> lerp(left,right,i/(LINE_COUNT-1)));
-
-  xs.forEach(x=>{
-    const d=makePathD(x,w,h);
-
-    const tr=document.createElementNS('http://www.w3.org/2000/svg','path');
-    tr.setAttribute('class','track'); tr.setAttribute('d',d); svg.appendChild(tr);
-
-    const r=document.createElementNS('http://www.w3.org/2000/svg','path');
-    r.setAttribute('class','runner'); r.setAttribute('d',d); r.setAttribute('stroke',pick(COLORS));
-    svg.appendChild(r);
-
-    const len=r.getTotalLength();
-    const seg=Math.round(lerp(SEG_MIN,SEG_MAX,Math.random()));
-    r.style.strokeDasharray=`${seg} ${len}`;
-
-    // TOP → BOTTOM: dashoffset giảm từ (len+seg) xuống (-seg), loop liên tục
-    runners.push({ el:r, len, seg, start: len+seg, end: -seg, t: Math.random()*DURATION });
-  });
+  return Array.from({length:LINE_COUNT},(_,i)=> lerp(left,right,i/(LINE_COUNT-1)));
 }
 
-/* rAF loop (không dùng CSS animation để tránh glitch/teleport) */
-let last=performance.now();
+// tạo mới HOẶC rebuild paths nhưng GIỮ progress
+function build({preserve=true}={}){
+  const w = svg.clientWidth, h = svg.clientHeight;
+  svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
+  const xs = computePositions(w);
+
+  // nếu chưa có runners → khởi tạo
+  if (!preserve || runners.length!==LINE_COUNT){
+    svg.innerHTML = '';
+    runners = xs.map((x,i)=>{
+      const d = makePathD(x,w,h);
+
+      const track = document.createElementNS('http://www.w3.org/2000/svg','path');
+      track.setAttribute('class','track'); track.setAttribute('d', d); svg.appendChild(track);
+
+      const el = document.createElementNS('http://www.w3.org/2000/svg','path');
+      el.setAttribute('class','runner'); el.setAttribute('d', d);
+      el.setAttribute('stroke', pick(PALETTE));
+      svg.appendChild(el);
+
+      const len = el.getTotalLength();
+      const seg = Math.round(lerp(SEG_MIN, SEG_MAX, Math.random()));
+      el.style.strokeDasharray = `${seg} ${len}`;
+
+      // progress ngẫu nhiên ban đầu (0..1)
+      const prog = Math.random();
+
+      return {
+        el, index:i, x, len, seg,
+        start: len + seg, end: -seg,   // TOP → BOTTOM (offset giảm dần)
+        progress: prog                 // lưu progress để bảo toàn khi rebuild
+      };
+    });
+  } else {
+    // rebuild: cập nhật 'd', len... nhưng GIỮ progress/seg/màu/phase
+    svg.innerHTML = ''; // dọn nhanh rồi vẽ lại theo runners hiện có
+    runners.forEach(r=>{
+      const d = makePathD(xs[r.index], w, h);
+      r.x = xs[r.index];
+
+      const track = document.createElementNS('http://www.w3.org/2000/svg','path');
+      track.setAttribute('class','track'); track.setAttribute('d', d); svg.appendChild(track);
+
+      const el = document.createElementNS('http://www.w3.org/2000/svg','path');
+      el.setAttribute('class','runner'); el.setAttribute('d', d);
+      el.setAttribute('stroke', r.el.getAttribute('stroke')); // giữ màu cũ
+      svg.appendChild(el);
+
+      r.el = el;
+      r.len = el.getTotalLength();
+      r.start = r.len + r.seg;
+      r.end   = -r.seg;
+      el.style.strokeDasharray = `${r.seg} ${r.len}`;
+      // set ngay vị trí hiện tại theo progress được giữ lại → không “teleport”
+      const off = lerp(r.start, r.end, r.progress);
+      el.style.strokeDashoffset = `${off}px`;
+    });
+  }
+}
+
+let last = performance.now();
 function loop(now){
-  const dt=Math.min(50, now-last)/1000; last=now;
-  for(const r of runners){
-    r.t = (r.t + dt) % DURATION;
-    const off = lerp(r.start, r.end, r.t/DURATION); // luôn giảm → từ trên xuống
+  const dt = Math.min(50, now-last)/1000; last = now;
+  for (const r of runners){
+    r.progress += dt / DURATION;
+    if (r.progress >= 1) r.progress -= 1;  // loop mượt
+    const off = lerp(r.start, r.end, r.progress); // offset GIẢM → từ trên xuống
     r.el.style.strokeDashoffset = `${off}px`;
   }
   requestAnimationFrame(loop);
 }
 
-/* init + quan sát kích thước thực của SVG (tránh rebuild thừa gây “nhảy”) */
-let boxW, boxH;
-function initOnce(){
-  boxW = svg.clientWidth; boxH = svg.clientHeight;
-  build(boxW, boxH);
-  requestAnimationFrame(loop);
+// init
+build({preserve:false}); requestAnimationFrame(loop);
 
-  const ro = new ResizeObserver(entries=>{
-    const {width, height} = entries[0].contentRect;
-    // chỉ rebuild khi thay đổi đáng kể (Framer đôi khi layout lại nhẹ)
-    if (Math.abs(width-boxW) > 10 || Math.abs(height-boxH) > 10){
-      boxW = width; boxH = height;
-      build(boxW, boxH);
-    }
-  });
-  ro.observe(svg);
-}
-initOnce();
+// quan sát thay đổi kích thước; rebuild nhưng GIỮ progress
+let prevW = svg.clientWidth, prevH = svg.clientHeight;
+const ro = new ResizeObserver(entries=>{
+  const {width, height} = entries[0].contentRect;
+  // chỉ rebuild khi thay đổi đáng kể để tránh rung do Framer
+  if (Math.abs(width-prevW)>10 || Math.abs(height-prevH)>10){
+    prevW=width; prevH=height;
+    build({preserve:true}); // GIỮ progress → không nhảy
+  }
+});
+ro.observe(svg);
 </script>
 </body></html>
