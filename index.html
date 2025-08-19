@@ -1,6 +1,11 @@
+<!-- Curved Falling Lines – rebuild độc lập từng line + CHỈ rebuild khi line đã đi qua đáy
+- TOP→BOTTOM liên tục, không nhảy
+- 14 line cách đều, fan-out +70%, chụm center cách đáy 70px
+- Mỗi line có 1 <g> riêng (track + runner). Khi resize, line nào xong 1 vòng mới rebuild line đó (độc lập).
+-->
 <!doctype html><html lang="vi"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Curved Falling Lines – stable</title>
+<title>Curved Falling Lines – independent rebuild</title>
 <style>
   html,body{height:100%;margin:0;background:#0E1011;overflow:hidden}
   svg{position:fixed;inset:0;width:100%;height:100%;display:block}
@@ -10,120 +15,126 @@
 </head><body>
 <svg id="stage" preserveAspectRatio="none"></svg>
 <script>
-/* ===== CONFIG (theo yêu cầu) ===== */
+/* ===== CONFIG ===== */
 const PALETTE     = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
-const LINE_COUNT  = 14;     // 12 + 2 line ngoài, spacing đều
+const LINE_COUNT  = 14;     // 12 + 2 bên
 const OPEN_FACTOR = 1.70;   // fan-out +70%
-const FOCUS_OFF   = 70;     // điểm chụm cách đáy 70px
-const SEG_MIN     = 50, SEG_MAX = 150;  // chiều dài vệt (px)
-const DURATION    = 7;      // giây cho 1 lượt rơi
-/* ================================= */
+const FOCUS_OFF   = 70;     // chụm cách đáy 70px
+const SEG_MIN     = 50, SEG_MAX = 150; // chiều dài vệt px
+const DURATION    = 7;      // giây / vòng
+const RESIZE_EPS  = 10;     // chỉ coi là đổi kích thước khi chênh > 10px
+/* =================== */
 
 const svg = document.getElementById('stage');
 const lerp = (a,b,t)=>a+(b-a)*t;
 const pick = a=>a[(Math.random()*a.length)|0];
 
-let runners = []; // giữ state để không nhảy khi rebuild
+let runners = []; // mỗi phần tử: {g,track,el,len,seg,start,end,progress,color,index,x, pendingGeom|null}
 
-function makePathD(x0,w,h){
-  const cx = w*0.5, cy = h - FOCUS_OFF;
+function pathD(x0,w,h){
+  const cx=w*0.5, cy=h-FOCUS_OFF;
   const c1x=x0, c1y=h*0.35;
-  const c2x=x0 + (cx-x0)*0.90;                // uốn mạnh hơn cho fan-out rộng
-  const c2y=h*(0.78 - 0.15*(OPEN_FACTOR-1));
+  const c2x=x0+(cx-x0)*0.90;                 // uốn mạnh cho fan-out rộng
+  const c2y=h*(0.78-0.15*(OPEN_FACTOR-1));
   return `M ${x0},0 C ${c1x},${c1y} ${c2x},${c2y} ${cx},${cy}`;
 }
-
-function computePositions(w){
-  const left  = w*0.5 - (w*0.5*OPEN_FACTOR);
-  const right = w*0.5 + (w*0.5*OPEN_FACTOR);
-  return Array.from({length:LINE_COUNT},(_,i)=> lerp(left,right,i/(LINE_COUNT-1)));
+function positions(w){
+  const L=w*0.5-(w*0.5*OPEN_FACTOR), R=w*0.5+(w*0.5*OPEN_FACTOR);
+  return Array.from({length:LINE_COUNT},(_,i)=>lerp(L,R,i/(LINE_COUNT-1)));
 }
 
-// tạo mới HOẶC rebuild paths nhưng GIỮ progress
-function build({preserve=true}={}){
-  const w = svg.clientWidth, h = svg.clientHeight;
+/* --- khởi tạo toàn bộ (lần đầu) --- */
+function buildInitial(){
+  svg.innerHTML='';
+  const w=svg.clientWidth, h=svg.clientHeight;
   svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
-  const xs = computePositions(w);
+  const xs=positions(w);
 
-  // nếu chưa có runners → khởi tạo
-  if (!preserve || runners.length!==LINE_COUNT){
-    svg.innerHTML = '';
-    runners = xs.map((x,i)=>{
-      const d = makePathD(x,w,h);
+  runners = xs.map((x,idx)=>{
+    const d = pathD(x,w,h);
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
 
-      const track = document.createElementNS('http://www.w3.org/2000/svg','path');
-      track.setAttribute('class','track'); track.setAttribute('d', d); svg.appendChild(track);
+    const track = document.createElementNS('http://www.w3.org/2000/svg','path');
+    track.setAttribute('class','track'); track.setAttribute('d', d);
 
-      const el = document.createElementNS('http://www.w3.org/2000/svg','path');
-      el.setAttribute('class','runner'); el.setAttribute('d', d);
-      el.setAttribute('stroke', pick(PALETTE));
-      svg.appendChild(el);
+    const el = document.createElementNS('http://www.w3.org/2000/svg','path');
+    const color = pick(PALETTE);
+    el.setAttribute('class','runner'); el.setAttribute('d', d); el.setAttribute('stroke', color);
 
-      const len = el.getTotalLength();
-      const seg = Math.round(lerp(SEG_MIN, SEG_MAX, Math.random()));
-      el.style.strokeDasharray = `${seg} ${len}`;
+    g.appendChild(track); g.appendChild(el); svg.appendChild(g);
 
-      // progress ngẫu nhiên ban đầu (0..1)
-      const prog = Math.random();
+    const len = el.getTotalLength();
+    const seg = Math.round(lerp(SEG_MIN, SEG_MAX, Math.random()));
+    el.style.strokeDasharray = `${seg} ${len}`;
 
-      return {
-        el, index:i, x, len, seg,
-        start: len + seg, end: -seg,   // TOP → BOTTOM (offset giảm dần)
-        progress: prog                 // lưu progress để bảo toàn khi rebuild
-      };
-    });
-  } else {
-    // rebuild: cập nhật 'd', len... nhưng GIỮ progress/seg/màu/phase
-    svg.innerHTML = ''; // dọn nhanh rồi vẽ lại theo runners hiện có
-    runners.forEach(r=>{
-      const d = makePathD(xs[r.index], w, h);
-      r.x = xs[r.index];
-
-      const track = document.createElementNS('http://www.w3.org/2000/svg','path');
-      track.setAttribute('class','track'); track.setAttribute('d', d); svg.appendChild(track);
-
-      const el = document.createElementNS('http://www.w3.org/2000/svg','path');
-      el.setAttribute('class','runner'); el.setAttribute('d', d);
-      el.setAttribute('stroke', r.el.getAttribute('stroke')); // giữ màu cũ
-      svg.appendChild(el);
-
-      r.el = el;
-      r.len = el.getTotalLength();
-      r.start = r.len + r.seg;
-      r.end   = -r.seg;
-      el.style.strokeDasharray = `${r.seg} ${r.len}`;
-      // set ngay vị trí hiện tại theo progress được giữ lại → không “teleport”
-      const off = lerp(r.start, r.end, r.progress);
-      el.style.strokeDashoffset = `${off}px`;
-    });
-  }
+    return {
+      g, track, el, color,
+      len, seg, start: len+seg, end: -seg,
+      progress: Math.random(),  // lệch pha ban đầu
+      index: idx, x, pendingGeom: null
+    };
+  });
 }
 
+/* --- rebuild 1 LINE (độc lập), chỉ gọi khi line đã chạy xong 1 vòng --- */
+function rebuildOne(r, targetW, targetH){
+  // cập nhật geometry nhưng GIỮ màu, GIỮ phase = 0 (bắt đầu vòng mới từ trên)
+  const xs = positions(targetW);
+  r.x = xs[r.index];
+
+  const d = pathD(r.x, targetW, targetH);
+  r.track.setAttribute('d', d);
+  r.el.setAttribute('d', d);
+  r.el.setAttribute('stroke', r.color);
+
+  // tính lại length & dash
+  r.len = r.el.getTotalLength();
+  r.start = r.len + r.seg;     // TOP → BOTTOM: offset giảm
+  r.end   = -r.seg;
+  r.el.style.strokeDasharray = `${r.seg} ${r.len}`;
+  r.el.style.strokeDashoffset = `${r.start}px`; // reset về trên cùng
+  r.progress = 0;             // bắt đầu vòng mới mượt
+  r.pendingGeom = null;       // clear yêu cầu rebuild
+}
+
+/* --- vòng lặp animation --- */
 let last = performance.now();
-function loop(now){
+function tick(now){
   const dt = Math.min(50, now-last)/1000; last = now;
-  for (const r of runners){
+
+  for(const r of runners){
+    // nếu line này có yêu cầu rebuild và đã kết thúc 1 vòng → rebuild LINE ĐÓ
+    if (r.pendingGeom && r.progress >= 1){
+      rebuildOne(r, r.pendingGeom.w, r.pendingGeom.h);
+    }
+
+    // cập nhật tiến độ & offset (TOP→BOTTOM)
     r.progress += dt / DURATION;
-    if (r.progress >= 1) r.progress -= 1;  // loop mượt
-    const off = lerp(r.start, r.end, r.progress); // offset GIẢM → từ trên xuống
+    if (r.progress > 1) r.progress -= 1;
+    const off = lerp(r.start, r.end, r.progress);
     r.el.style.strokeDashoffset = `${off}px`;
   }
-  requestAnimationFrame(loop);
+  requestAnimationFrame(tick);
 }
 
-// init
-build({preserve:false}); requestAnimationFrame(loop);
-
-// quan sát thay đổi kích thước; rebuild nhưng GIỮ progress
-let prevW = svg.clientWidth, prevH = svg.clientHeight;
+/* --- quan sát resize: đặt "yêu cầu rebuild" RIÊNG TỪNG LINE --- */
+let lastW = svg.clientWidth, lastH = svg.clientHeight;
 const ro = new ResizeObserver(entries=>{
   const {width, height} = entries[0].contentRect;
-  // chỉ rebuild khi thay đổi đáng kể để tránh rung do Framer
-  if (Math.abs(width-prevW)>10 || Math.abs(height-prevH)>10){
-    prevW=width; prevH=height;
-    build({preserve:true}); // GIỮ progress → không nhảy
+  if (Math.abs(width-lastW) > RESIZE_EPS || Math.abs(height-lastH) > RESIZE_EPS){
+    lastW = width; lastH = height;
+    svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+
+    // Đặt pending cho TỪNG line (độc lập). Không rebuild ngay lập tức.
+    for (const r of runners){
+      r.pendingGeom = {w: width, h: height};
+    }
   }
 });
+
+/* --- start --- */
+buildInitial();
 ro.observe(svg);
+requestAnimationFrame(tick);
 </script>
 </body></html>
