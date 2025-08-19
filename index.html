@@ -1,9 +1,8 @@
-<!-- Curved Falling Lines – fixes:
-1) Move TOP → BOTTOM (correct dashoffset direction)
-2) No jumping: each runner travels continuously to the end of the path before looping
+<!-- Curved Falling Lines – fixed:
+1) Lines move TOP → BOTTOM (JS rAF, no CSS loop glitches)
+2) Movement is continuous to the end point (no pause/jump)
 3) Even spacing incl. 2 extra side lines (total = 14)
-4) Increase overall “opening” width by +30% (fan-out wider)
-5) Converge point centered, lifted 70px above bottom
+4) Wider fan-out (+30%), converge point is centered and 70px above bottom
 -->
 <!doctype html><html lang="vi"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -12,80 +11,98 @@
   html,body{height:100%;margin:0;background:#0E1011;overflow:hidden}
   svg{position:fixed;inset:0;width:100%;height:100%;display:block}
   .track{fill:none;stroke:rgba(255,255,255,.08);stroke-width:1}
-  .runner{
-    fill:none;stroke:var(--color);stroke-width:1;stroke-linecap:round;
-    animation:fall var(--dur) linear infinite;animation-delay:var(--delay);
-    animation-timing-function:cubic-bezier(.4,.26,0,.97)
-  }
-  @keyframes fall{
-    from{ stroke-dashoffset: var(--start) }  /* pathLen + seg (above, off-screen) */
-    to  { stroke-dashoffset: var(--end) }    /* -seg (past the bottom) */
-  }
-  @media (prefers-reduced-motion:reduce){.runner{animation:none}}
+  .runner{fill:none;stroke-width:1;stroke-linecap:round}
 </style>
 </head><body>
 <svg id="stage" preserveAspectRatio="none"></svg>
 <script>
-const PALETTE=["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
-const LINE_COUNT=14;                 // 12 + 2 side lines
-const MIN_DELAY=0, MAX_DELAY=3.5;
-const SPEED_S=7;                     // seconds per drop
-const MIN_LEN=50, MAX_LEN=150;       // runner length in px
-const OPEN_FACTOR=1.3;               // +30% wider fan-out
-const FOCUS_OFFSET=70;               // converge point is 70px above bottom
+/* ===== Params ===== */
+const COLORS   = ["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
+const LINE_CNT = 14;          // 12 + 2 bên
+const DUR_S    = 7;           // thời gian rơi 1 vòng (giây)
+const LEN_MIN  = 50, LEN_MAX = 150; // chiều dài vệt rơi
+const OPEN     = 1.3;         // mở rộng 30%
+const FOCUS_OFF= 70;          // điểm chụm cách đáy 70px
 
-const svg=document.getElementById('stage');
-const pick=a=>a[(Math.random()*a.length)|0];
-const rand=(a,b)=>a+Math.random()*(b-a);
+const svg = document.getElementById('stage');
+const pick = a => a[(Math.random()*a.length)|0];
+const lerp = (a,b,t)=>a+(b-a)*t;
 
-// Curved path converging to centered focal point (bottom - 70px), with stronger bend
-function curvedPathD(x0,w,h){
-  const cx=w*0.5, cy=h-FOCUS_OFFSET;                // focal point (centered)
-  const c1x=x0,       c1y=h*0.35;                   // first control (start column)
-  const mix=(t,a,b)=>a+(b-a)*t;
-  const c2x=mix(0.8, x0, cx);                       // drift toward center
-  const c2y=h*(0.78-0.15*(OPEN_FACTOR-1));          // slightly earlier bend when opening wider
+let runners = []; // {path, seg, len, t, dur, startOff, endOff}
+
+/* Bézier cong chụm về tâm (bottom-70) */
+function pathD(x0,w,h){
+  const cx=w*0.5, cy=h-FOCUS_OFF;
+  const c1x=x0,  c1y=h*0.35;
+  const c2x=x0 + (cx-x0)*0.9;                 // hơi kéo về tâm (mịn hơn)
+  const c2y=h*(0.78-0.15*(OPEN-1));           // uốn tăng 30%
   return `M ${x0},0 C ${c1x},${c1y} ${c2x},${c2y} ${cx},${cy}`;
 }
 
 function build(){
   svg.innerHTML='';
+  runners.length = 0;
+
   const w=svg.clientWidth, h=svg.clientHeight;
   svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
 
-  // Even spacing across an expanded range (centered), so fan-out is 30% wider
-  const left =  w*0.5 - (w*0.5*OPEN_FACTOR);        // -15%W
-  const right = w*0.5 + (w*0.5*OPEN_FACTOR);        // +115%W
-  const xs = Array.from({length:LINE_COUNT},(_,i)=> left + (right-left)*(i/(LINE_COUNT-1)));
+  // khoảng x được mở rộng 30% nhưng vẫn chia đều
+  const left  = w*0.5 - (w*0.5*OPEN);
+  const right = w*0.5 + (w*0.5*OPEN);
+  const xs = Array.from({length:LINE_CNT},(_,i)=> lerp(left,right, i/(LINE_CNT-1)));
 
   xs.forEach(x=>{
-    const d=curvedPathD(x,w,h);
+    const d = pathD(x,w,h);
 
-    // background track
-    const tr=document.createElementNS('http://www.w3.org/2000/svg','path');
-    tr.setAttribute('class','track'); tr.setAttribute('d',d); svg.appendChild(tr);
+    // track mờ
+    const tr = document.createElementNS('http://www.w3.org/2000/svg','path');
+    tr.setAttribute('class','track'); tr.setAttribute('d', d); svg.appendChild(tr);
 
-    // colored runner
-    const r=document.createElementNS('http://www.w3.org/2000/svg','path');
-    r.setAttribute('class','runner'); r.setAttribute('d',d); svg.appendChild(r);
+    // runner màu
+    const r  = document.createElementNS('http://www.w3.org/2000/svg','path');
+    r.setAttribute('class','runner'); r.setAttribute('d', d);
+    r.setAttribute('stroke', pick(COLORS));
+    svg.appendChild(r);
 
-    const pathLen=r.getTotalLength();
-    const segLen=Math.round(rand(MIN_LEN,MAX_LEN));
+    const pathLen = r.getTotalLength();
+    const segLen  = Math.round(lerp(LEN_MIN, LEN_MAX, Math.random()));
+    r.style.strokeDasharray = `${segLen} ${pathLen}`;
 
-    // show a single solid segment of length segLen, then slide along path
-    r.style.strokeDasharray=`${segLen} ${pathLen}`;
-
-    // TOP → BOTTOM: animate dashoffset decreasing from (pathLen+seg) to (-seg)
-    r.style.setProperty('--start',`${pathLen+segLen}px`);
-    r.style.setProperty('--end',`-${segLen}px`);
-
-    r.style.setProperty('--dur',`${SPEED_S}s`);
-    r.style.setProperty('--delay',`${rand(MIN_DELAY,MAX_DELAY).toFixed(2)}s`); // initial phase offset only
-    r.style.setProperty('--color',pick(PALETTE));
+    // TOP → BOTTOM (liền mạch): offset đi từ -seg -> pathLen+seg, rồi loop
+    runners.push({
+      el: r,
+      seg: segLen,
+      len: pathLen,
+      t: Math.random()*DUR_S,   // lệch pha ban đầu
+      dur: DUR_S,
+      startOff: -segLen,
+      endOff: pathLen + segLen
+    });
   });
 }
 
+/* render loop: không dùng CSS loop để tránh "giật & teleport" */
+let last = performance.now();
+function tick(nowMS){
+  const dt = Math.min(50, nowMS-last)/1000; last = nowMS;
+
+  for(const r of runners){
+    r.t += dt;
+    if (r.t > r.dur) r.t -= r.dur;                // loop liên tục
+    const off = lerp(r.startOff, r.endOff, r.t/r.dur);
+    r.el.style.strokeDashoffset = `${off}px`;
+  }
+  requestAnimationFrame(tick);
+}
+
 build();
-addEventListener('resize',build,{passive:true});
+requestAnimationFrame(tick);
+
+// debounce resize để không rebuild liên tục (tránh cảm giác “nhảy vị trí”)
+let rzTO;
+addEventListener('resize', ()=>{
+  clearTimeout(rzTO);
+  rzTO = setTimeout(()=>{ build(); }, 120);
+},{passive:true});
 </script>
 </body></html>
