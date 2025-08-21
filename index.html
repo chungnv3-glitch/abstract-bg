@@ -1,6 +1,6 @@
 <!doctype html><html lang="vi"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Curved Falling Lines – Canvas (responsive, no jump)</title>
+<title>Curved Falling Lines – Canvas (instant responsive, no jump)</title>
 <style>
   html,body{height:100%;margin:0;background:#0E1011;overflow:hidden}
   canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
@@ -8,7 +8,7 @@
 </head><body>
 <canvas id="cv"></canvas>
 <script>
-/* ===== CONFIG (checklist) ===== */
+/* ===== CONFIG (theo checklist) ===== */
 const PALETTE=["#FFC413","#00A652","#FFBCFC","#4A4A48","#00A652","#C4C8FF"];
 const LINE_COUNT=14;            // 12 + 2 bên, spacing đều
 const OPEN_FACTOR=1.70;         // fan-out +70%
@@ -28,7 +28,6 @@ const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const pick=a=>a[(Math.random()*a.length)|0];
 
 function setSize(){
-  // cập nhật DPR mỗi lần resize (zoom / retina đổi DPR)
   DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1));
   W = Math.floor(innerWidth);
   H = Math.floor(innerHeight);
@@ -37,7 +36,7 @@ function setSize(){
   ctx.setTransform(DPR,0,0,DPR,0,0);
 }
 
-/* ---- Tạo 1 đường cong + bảng tra chiều dài cung ---- */
+/* ---- Bézier cong & tra cứu chiều dài cung ---- */
 function makeCurve(x0, w=W, h=H){
   const cx=w*0.5, cy=h-FOCUS_OFF;
   const p0={x:x0,y:0};
@@ -68,6 +67,7 @@ function makeCurve(x0, w=W, h=H){
   return {pts,lens,total,B,tAtLen};
 }
 
+/* ---- Vẽ ---- */
 function drawTrack(curve){
   ctx.globalAlpha=TRACK_ALPHA;
   ctx.beginPath();
@@ -88,10 +88,10 @@ function drawSegment(curve, s0, s1, color){
 }
 
 /* ---- State ---- */
-let lines=[];     // các curve cố định
-let runners=[];   // mỗi line: {idx,color,seg,head,speedPxPerSec,pendingCurve}
+let lines=[];     // curves
+let runners=[];   // {idx,color,seg,head,speedPxPerSec}
 
-/* even-spaced X theo fan-out */
+/* X theo fan-out đều */
 function xPositions(){
   const L=W*0.5-(W*0.5*OPEN_FACTOR), R=W*0.5+(W*0.5*OPEN_FACTOR);
   return Array.from({length:LINE_COUNT},(_,i)=>lerp(L,R,i/(LINE_COUNT-1)));
@@ -109,40 +109,50 @@ function buildInitial(){
     runners.push({
       idx:i, color:pick(PALETTE), seg,
       head: Math.random()*travel,  // lệch pha ban đầu
-      speedPxPerSec:speed,
-      pendingCurve:null
+      speedPxPerSec:speed
     });
   }
 }
 
-/* ---- Responsive scheduling (fix: hoạt động cả khi RO không bắn) ---- */
-let lastW=0,lastH=0, resizeTO=null;
-function scheduleResize(){
-  // debounce tránh spam
-  clearTimeout(resizeTO);
-  resizeTO=setTimeout(()=>{
-    const dW=Math.abs(innerWidth-lastW), dH=Math.abs(innerHeight-lastH);
-    if(dW<8 && dH<8) return;
-    lastW=innerWidth; lastH=innerHeight;
+/* ---- Rebuild NGAY khi resize, nhưng GIỮ progress cho từng line ---- */
+function rebuildPreserveProgress(){
+  // Lưu progress hiện tại (0..1) của từng line
+  const prog = runners.map(r=>{
+    const curve=lines[r.idx]; const travel=curve.total + r.seg;
+    return (travel>0)? (r.head % travel)/travel : 0;
+  });
 
-    // cập nhật canvas size & DPR ngay → khung responsive liền
-    setSize();
+  // Cập nhật kích thước, geometry mới
+  setSize();
+  const xs = xPositions();
+  lines = xs.map(x=> makeCurve(x, W, H));
 
-    // chuẩn bị curve mới cho từng line (áp dụng khi line đó chạm đáy)
-    const xs=xPositions();
-    for(let i=0;i<LINE_COUNT;i++){
-      runners[i].pendingCurve = makeCurve(xs[i], W, H);
-    }
-  }, 120);
+  // Gán lại head/speed theo progress đã lưu → không teleport, căn giữa NGAY
+  for(let i=0;i<LINE_COUNT;i++){
+    const r = runners[i];
+    r.idx = i;
+    const travelNew = lines[i].total + r.seg;
+    r.speedPxPerSec = travelNew / DURATION;
+    r.head = prog[i] * travelNew;  // tiếp tục tại đúng vị trí tương ứng
+  }
 }
 
-/* Backup listeners: một số trình duyệt không bắn RO ổn định với canvas full-screen */
-window.addEventListener('resize', scheduleResize, {passive:true});
-window.addEventListener('orientationchange', scheduleResize, {passive:true});
-matchMedia(`(resolution: ${window.devicePixelRatio||1}dppx)`).addEventListener?.('change', scheduleResize);
-
-/* RO trên canvas (nếu có) */
-new ResizeObserver(()=>scheduleResize()).observe(cv);
+/* ---- Listeners cho responsive ngay lập tức ---- */
+let rzTO=null, lastW=innerWidth, lastH=innerHeight, lastDPR=window.devicePixelRatio||1;
+function scheduleImmediateRebuild(){
+  clearTimeout(rzTO);
+  rzTO = setTimeout(()=>{
+    const curDPR = window.devicePixelRatio||1;
+    if (Math.abs(innerWidth-lastW)>1 || Math.abs(innerHeight-lastH)>1 || Math.abs(curDPR-lastDPR)>1e-3){
+      lastW=innerWidth; lastH=innerHeight; lastDPR=curDPR;
+      rebuildPreserveProgress();  // căn giữa & update ngay
+    }
+  }, 80);
+}
+window.addEventListener('resize', scheduleImmediateRebuild, {passive:true});
+window.addEventListener('orientationchange', scheduleImmediateRebuild, {passive:true});
+matchMedia(`(resolution: ${window.devicePixelRatio||1}dppx)`).addEventListener?.('change', scheduleImmediateRebuild);
+new ResizeObserver(()=>scheduleImmediateRebuild()).observe(cv);
 
 /* ---- Animation loop ---- */
 let lastTS=performance.now();
@@ -150,28 +160,17 @@ function frame(ts){
   const dt=Math.min(50, ts-lastTS)/1000; lastTS=ts;
   ctx.clearRect(0,0,W,H);
 
-  // vẽ track
+  // track
   for(const ln of lines) drawTrack(ln);
 
-  // vẽ runners (trên → dưới, liền mạch)
+  // runners: TOP→BOTTOM (head tăng dần), wrap mượt
   for(const r of runners){
     const curve=lines[r.idx];
     const travel=curve.total + r.seg;
     r.head += r.speedPxPerSec * dt;
-
     const tail = r.head - r.seg;
-
-    // nếu có pending & đuôi đã qua đáy → áp dụng curve mới cho line này
-    if(r.pendingCurve && tail >= travel){
-      lines[r.idx] = r.pendingCurve; r.pendingCurve=null;
-      const newTravel = lines[r.idx].total + r.seg;
-      r.speedPxPerSec = newTravel / DURATION;
-      r.head = 0; // bắt đầu vòng mới từ trên cùng (không thấy teleport)
-    }
-
     drawSegment(curve, tail, r.head, r.color);
-
-    if(r.head >= travel) r.head -= travel; // wrap mượt
+    if(r.head >= travel) r.head -= travel;
   }
 
   requestAnimationFrame(frame);
@@ -179,7 +178,7 @@ function frame(ts){
 
 /* ---- Start ---- */
 (function start(){
-  setSize(); lastW=innerWidth; lastH=innerHeight;
+  setSize();
   buildInitial();
   requestAnimationFrame(frame);
 })();
